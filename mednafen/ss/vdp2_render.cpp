@@ -3108,13 +3108,13 @@ static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, co
  //
  //
  //
- if(DoHBlend)
+ /*if(DoHBlend) // <--- gridc branch
  {
   espec->LineWidths[out_line] = ApplyHBlend(espec->surface->pixels + out_line * espec->surface->pitchinpix + espec->DisplayRect.x, espec->LineWidths[out_line]);
 
   // Kind of late, but meh. ;p
   assert((espec->DisplayRect.x + espec->LineWidths[out_line]) <= 704);
- }
+ }*/
 }
 
 //

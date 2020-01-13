@@ -56,11 +56,12 @@ static bool failed_init = false;
 static unsigned image_offset = 0;
 static unsigned image_crop = 0;
 
-static unsigned h_mask = 0;
-static unsigned first_sl = 0;
-static unsigned last_sl = 239;
-static unsigned first_sl_pal = 0;
-static unsigned last_sl_pal = 287;
+#define SCANLINE_NTSC_BEGIN		0
+#define SCANLINE_NTSC_END		239
+
+#define SCANLINE_PAL_BEGIN		16 // 0
+#define SCANLINE_PAL_END		271 // 287
+
 static bool is_pal = false;
 
 // Sets how often (in number of output frames/retro_run invocations)
@@ -809,7 +810,7 @@ static int64 UpdateInputLastBigTS;
 static INLINE void UpdateSMPCInput(const sscpu_timestamp_t timestamp)
 {
  SMPC_TransformInput();
-	
+
  int32 elapsed_time = (((int64)timestamp * cur_clock_div * 1000 * 1000) - UpdateInputLastBigTS) / (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));
 
  UpdateInputLastBigTS += (int64)elapsed_time * (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));
@@ -1134,7 +1135,7 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
    SMPC_Init(smpc_area, MasterClock);
    VDP1::Init();
    VDP2::Init(PAL);
-   VDP2::SetGetVideoParams(&EmulatedSS, true, sls, sle, true, DoHBlend);
+   VDP2::SetGetVideoParams(&EmulatedSS, true, sls, sle, true, false/*DoHBlend*/);
    CDB_Init();
    SOUND_Init();
 
@@ -1759,8 +1760,6 @@ bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t)
    return false;
 }
 
-static bool old_cdimagecache = false;
-
 static bool boot = true;
 
 // shared memory cards support
@@ -1845,21 +1844,6 @@ static void check_variables(bool startup)
       input_multitap( 2, connected );
    }
 
-   var.key = "beetle_saturn_cdimagecache";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      bool cdimage_cache = true;
-      if (!strcmp(var.value, "enabled"))
-         cdimage_cache = true;
-      else if (!strcmp(var.value, "disabled"))
-         cdimage_cache = false;
-      if (cdimage_cache != old_cdimagecache)
-      {
-         old_cdimagecache = cdimage_cache;
-      }
-   }
-
    var.key = "beetle_saturn_midsync";
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -1884,61 +1868,18 @@ static void check_variables(bool startup)
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-       if (!strcmp(var.value, "english"))
+       if (!strcmp(var.value, "English"))
           setting_smpc_autortc_lang = 0;
-       else if (!strcmp(var.value, "german"))
+       else if (!strcmp(var.value, "German"))
           setting_smpc_autortc_lang = 1;
-       else if (!strcmp(var.value, "french"))
+       else if (!strcmp(var.value, "French"))
           setting_smpc_autortc_lang = 2;
-       else if (!strcmp(var.value, "spanish"))
+       else if (!strcmp(var.value, "Spanish"))
           setting_smpc_autortc_lang = 3;
-       else if (!strcmp(var.value, "italian"))
+       else if (!strcmp(var.value, "Italian"))
           setting_smpc_autortc_lang = 4;
-       else if (!strcmp(var.value, "japanese"))
+       else if (!strcmp(var.value, "Japanese"))
           setting_smpc_autortc_lang = 5;
-   }
-
-   var.key = "beetle_saturn_horizontal_overscan";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      h_mask = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_initial_scanline";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      first_sl = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_last_scanline";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      last_sl = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_initial_scanline_pal";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      first_sl_pal = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_last_scanline_pal";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      last_sl_pal = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_horizontal_blend";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      bool newval = (!strcmp(var.value, "enabled"));
-      DoHBlend = newval;
    }
 
    var.key = "beetle_saturn_analog_stick_deadzone";
@@ -2170,8 +2111,6 @@ static uint64_t video_frames, audio_frames;
 void retro_run(void)
 {
    bool updated = false;
-   bool hires_h_mode;
-   unsigned overscan_mask;
    unsigned linevisfirst, linevislast;
    static unsigned width, height;
    static unsigned game_width, game_height;
@@ -2179,8 +2118,16 @@ void retro_run(void)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       check_variables(false);
 
-   linevisfirst   =  is_pal ? first_sl_pal : first_sl;
-   linevislast    =  is_pal ? last_sl_pal : last_sl;
+	if ( is_pal )
+	{
+		linevisfirst = SCANLINE_PAL_BEGIN;
+		linevislast = SCANLINE_PAL_END;
+	}
+	else
+	{
+		linevisfirst = SCANLINE_NTSC_BEGIN;
+		linevislast = SCANLINE_NTSC_END;
+	}
 
    // Keep the counters at 0 so that they don't display a bogus
    // value if this option is enabled later on
@@ -2238,9 +2185,7 @@ void retro_run(void)
    const uint32_t *pix = surf->pixels;
    size_t pitch        = FB_WIDTH * sizeof(uint32_t);
 
-   hires_h_mode   =  (rects[0] == 704) ? true : false;
-   overscan_mask  =  (h_mask >> 1) << hires_h_mode;
-   width          =  rects[0] - (h_mask << hires_h_mode);
+   width          =  rects[0];
    height         =  (linevislast + 1 - linevisfirst) << PrevInterlaced;
 
    if (width != game_width || height != game_height)
@@ -2249,7 +2194,7 @@ void retro_run(void)
 
       // Change frontend resolution using  base width/height (+ overscan adjustments).
       // This avoids inconsistent frame scales when game switches between interlaced and non-interlaced modes.
-      av_info.geometry.base_width   = 352 - h_mask;
+      av_info.geometry.base_width   = 352;
       av_info.geometry.base_height  = linevislast + 1 - linevisfirst;
       av_info.geometry.max_width    = MEDNAFEN_CORE_GEOMETRY_MAX_W;
       av_info.geometry.max_height   = MEDNAFEN_CORE_GEOMETRY_MAX_H;
@@ -2264,7 +2209,7 @@ void retro_run(void)
       input_set_geometry( width, height );
    }
 
-   pix += surf->pitchinpix * (linevisfirst << PrevInterlaced) + overscan_mask;
+   pix += surf->pitchinpix * (linevisfirst << PrevInterlaced);
 
    fb = pix;
 
@@ -2338,6 +2283,7 @@ void retro_set_environment( retro_environment_t cb )
 
    static const struct retro_variable vars[] = {
       { "beetle_saturn_region", "System Region; Auto Detect|Japan|North America|Europe|South Korea|Asia (NTSC)|Asia (PAL)|Brazil|Latin America" },
+      { "beetle_saturn_autortc_lang", "System Language; English|German|French|Spanish|Italian|Japanese" },
       { "beetle_saturn_cart", "Cartridge; Auto Detect|None|Backup Memory|Extended RAM (1MB)|Extended RAM (4MB)|The King of Fighters '95|Ultraman: Hikari no Kyojin Densetsu" },
       { "beetle_saturn_multitap_port1", "6Player Adaptor on Port 1; disabled|enabled" },
       { "beetle_saturn_multitap_port2", "6Player Adaptor on Port 2; disabled|enabled" },
@@ -2345,16 +2291,8 @@ void retro_set_environment( retro_environment_t cb )
       { "beetle_saturn_trigger_deadzone", "Trigger Deadzone; 15%|20%|25%|30%|0%|5%|10%"},
       { "beetle_saturn_mouse_sensitivity", "Mouse Sensitivity; 100%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|5%|10%|15%|20%|25%|30%|35%|40%|45%|50%|55%|60%|65%|70%|75%|80%|85%|90%|95%" },
       { "beetle_saturn_virtuagun_crosshair", "Gun Crosshair; Cross|Dot|Off" },
-      { "beetle_saturn_cdimagecache", "CD Image Cache (restart); disabled|enabled" },
-      { "beetle_saturn_midsync", "Mid-frame Input Synchronization; disabled|enabled" },
-      { "beetle_saturn_autortc", "Automatically set RTC on game load; enabled|disabled" },
-      { "beetle_saturn_autortc_lang", "BIOS language; english|german|french|spanish|italian|japanese" },
-      { "beetle_saturn_horizontal_overscan", "Horizontal Overscan Mask; 0|2|4|6|8|10|12|14|16|18|20|22|24|26|28|30|32|34|36|38|40|42|44|46|48|50|52|54|56|58|60" },
-      { "beetle_saturn_initial_scanline", "Initial scanline; 0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" },
-      { "beetle_saturn_last_scanline", "Last scanline; 239|210|211|212|213|214|215|216|217|218|219|220|221|222|223|224|225|226|227|228|229|230|231|232|233|234|235|236|237|238" },
-      { "beetle_saturn_initial_scanline_pal", "Initial scanline PAL; 16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40|41|42|43|44|45|46|47|48|49|50|51|52|53|54|55|56|57|58|59|60|0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15" },
-      { "beetle_saturn_last_scanline_pal", "Last scanline PAL; 271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|287|230|231|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270" },
-      { "beetle_saturn_horizontal_blend", "Enable Horizontal Blend(blur); disabled|enabled" },
+//    { "beetle_saturn_midsync", "Mid-frame Input Synchronization; disabled|enabled" },
+      { "beetle_saturn_autortc", "Automatic Clock Set; enabled|disabled" },
       { NULL, NULL },
    };
 
