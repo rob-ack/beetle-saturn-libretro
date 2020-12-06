@@ -389,6 +389,7 @@ CDIF_MT::~CDIF_MT()
       scond_free(SBCond);
       SBCond = NULL;
    }
+   delete disc_cdaccess;
 }
 
 bool CDIF::ValidateRawSector(uint8_t *buf)
@@ -566,7 +567,7 @@ CDIF_ST::CDIF_ST(CDAccess *cda) : disc_cdaccess(cda)
 
 CDIF_ST::~CDIF_ST()
 {
-
+	delete disc_cdaccess;
 }
 
 void CDIF_ST::HintReadSector(int32_t lba)
@@ -753,9 +754,14 @@ Stream *CDIF::MakeStream(int32_t lba, uint32_t sector_count)
 
 CDIF *CDIF_Open(const std::string& path, bool image_memcache)
 {
-   CDAccess *cda = CDAccess_Open(path, image_memcache);
+	CDAccess *cda = CDAccess_Open( path, image_memcache );
 
-   if(!image_memcache)
-      return new CDIF_MT(cda);
-   return new CDIF_ST(cda);
+	if ( image_memcache )
+	{
+		return new CDIF_ST( cda );
+	}
+	else
+	{
+		return new CDIF_MT( cda );
+	}
 }

@@ -1018,6 +1018,7 @@ void CDAccess_Image::Cleanup(void)
 
          if(this_track->fp)
          {
+            this_track->fp->close();
             delete this_track->fp;
             this_track->fp = NULL;
          }
