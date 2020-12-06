@@ -1352,9 +1352,14 @@ static MDFN_COLD void SaveRTC(void)
 
 static MDFN_COLD void LoadRTC(void)
 {
-   FileStream sds(MDFN_MakeFName(MDFNMKF_SAV, 0, "smpc"), MODE_READ);
+	const char* smpc_file = MDFN_MakeFName(MDFNMKF_SAV, 0, "smpc");
+	if ( filestream_exists( smpc_file ) )
+	{
+		FileStream sds(smpc_file, MODE_READ);
+		SMPC_LoadNV(&sds);
 
-   SMPC_LoadNV(&sds);
+		sds.close();
+	}
 }
 
 struct EventsPacker
