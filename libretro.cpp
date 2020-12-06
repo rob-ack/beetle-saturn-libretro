@@ -1803,16 +1803,25 @@ bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t)
 static bool boot = true;
 
 // shared memory cards support
-static bool shared_memorycards = false;
-static bool shared_memorycards_toggle = false;
+static bool g_use_shared_saves = false;
 
 static void check_variables(bool startup)
 {
    struct retro_variable var = {0};
 
-   if (startup)
-   {
-   }
+	if ( startup )
+	{
+		/*var.key = "beetle_saturn_shared_saves";
+
+		if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+		{
+			setting_shared_saves = false; //default
+			if (!strcmp(var.value, "enabled"))
+				setting_shared_saves = true;
+			if (!strcmp(var.value, "disabled"))
+				setting_shared_saves = false;
+		}*/
+	}
 
    var.key = "beetle_saturn_region";
 
@@ -2082,8 +2091,9 @@ bool retro_load_game(const struct retro_game_info *info)
       snprintf(retro_cd_path, sizeof(retro_cd_path), "%s", info->path);
 
    check_variables(true);
+
    //make sure shared memory cards and save states are enabled only at startup
-   shared_memorycards = shared_memorycards_toggle;
+   g_use_shared_saves = setting_shared_saves;
 
    // Let's try to load the game. If this fails then things are very wrong.
    if (MDFNI_LoadGame(retro_cd_path) == false)
@@ -2316,6 +2326,7 @@ void retro_set_environment( retro_environment_t cb )
    static const struct retro_variable vars[] = {
       { "beetle_saturn_region", "System Region; Auto Detect|Japan|North America|Europe|South Korea|Asia (NTSC)|Asia (PAL)|Brazil|Latin America" },
       { "beetle_saturn_autortc_lang", "System Language; English|German|French|Spanish|Italian|Japanese" },
+      // { "beetle_saturn_shared_saves", "Shared Backup Memory; enabled|disabled" },
       { "beetle_saturn_cart", "Cartridge; Auto Detect|None|Backup Memory|Extended RAM (1MB)|Extended RAM (4MB)|The King of Fighters '95|Ultraman: Hikari no Kyojin Densetsu" },
       { "beetle_saturn_multitap_port1", "6Player Adaptor on Port 1; disabled|enabled" },
       { "beetle_saturn_multitap_port2", "6Player Adaptor on Port 2; disabled|enabled" },
@@ -2333,6 +2344,9 @@ void retro_set_environment( retro_environment_t cb )
    vfs_iface_info.iface                      = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
       filestream_vfs_init(&vfs_iface_info);
+
+   bool allow_no_game = false;
+   cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &allow_no_game);
 
    input_set_env( cb );
 }
@@ -2486,7 +2500,7 @@ const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)
          snprintf(fullpath, sizeof(fullpath), "%s%c%s.%s",
                retro_save_directory,
                retro_slash,
-               (!shared_memorycards) ? retro_cd_base_name : "mednafen_saturn_libretro_shared",
+               g_use_shared_saves ? "$.shared" : retro_cd_base_name,
                cd1);
          break;
       case MDFNMKF_FIRMWARE:
