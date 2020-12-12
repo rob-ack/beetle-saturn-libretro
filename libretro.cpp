@@ -1963,7 +1963,7 @@ static bool MDFNI_LoadGame( const char *name )
 
    // .. safe defaults
    region = SMPC_AREA_NA;
-   cart_type = CART_BACKUP_MEM;
+   cart_type = CART_NONE;
    cpucache_emumode = CPUCACHE_EMUMODE_DATA;
 
    // always set this.
