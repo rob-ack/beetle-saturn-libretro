@@ -1,21 +1,22 @@
 #ifndef __DISC_H__
 #define __DISC_H__
 
-#include "libretro.h"
+#include <libretro.h>
+#include "mednafen/git.h"
 #include "mednafen/mednafen-types.h"
 
 // These routines handle disc drive front-end.
 
-extern void disc_init( retro_environment_t environ_cb );
+void disc_init( retro_environment_t environ_cb );
 
-extern void disc_cleanup();
+void disc_cleanup(void);
 
-extern bool disc_detect_region( unsigned* region );
+bool disc_detect_region( unsigned* region );
 
-extern bool disc_test();
+bool disc_test();
 
-extern void disc_select( unsigned disc_num );
+void disc_select( unsigned disc_num );
 
-extern bool disc_load_content( MDFNGI* game_inteface, const char *name, uint8* fd_id, char* sgid );
+bool disc_load_content( MDFNGI* game_inteface, const char *name, uint8* fd_id, char* sgid );
 
 #endif

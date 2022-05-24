@@ -96,6 +96,10 @@
 #define SS_DBGTI SS_DBG
 #endif
 
+#define WORKRAM_BANK_SIZE_BYTES (1024*1024)
+
+extern uint8 WorkRAM[2*WORKRAM_BANK_SIZE_BYTES]; // unified 2MB work ram for linear access.
+
  template<unsigned which>
  static void SS_DBG_Wrap(const char* format, ...) noexcept
  {
