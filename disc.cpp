@@ -285,7 +285,7 @@ void disc_init( retro_environment_t environ_cb )
 	environ_cb( RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_interface );
 }
 
-void disc_calcgameid( uint8* id_out16, uint8* fd_id_out16, char* sgid )
+static void CalcGameID( uint8* id_out16, uint8* fd_id_out16, char* sgid )
 {
 	md5_context mctx;
 	uint8_t buf[2048];
@@ -347,7 +347,7 @@ void disc_calcgameid( uint8* id_out16, uint8* fd_id_out16, char* sgid )
 	mctx.finish(id_out16);
 }
 
-void disc_cleanup()
+void disc_cleanup(void)
 {
 	for(unsigned i = 0; i < CDInterfaces.size(); i++) {
 		delete CDInterfaces[i];
@@ -357,7 +357,7 @@ void disc_cleanup()
 	g_current_disc = 0;
 }
 
-bool disc_detect_region( unsigned* region )
+bool DetectRegion( unsigned* region )
 {
 	uint8_t *buf = new uint8[2048 * 16];
 	uint64 possible_regions = 0;
@@ -400,7 +400,7 @@ bool disc_detect_region( unsigned* region )
 	return false;
 }
 
-bool disc_test()
+bool DiscSanityChecks(void)
 {
 	size_t i;
 
@@ -481,9 +481,9 @@ bool disc_test()
 
 			break;
 
-		}; // for each track
+		} // for each track
 
-	}; // for each disc
+	} // for each disc
 
 	return true;
 }
@@ -500,9 +500,8 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 {
 	disc_cleanup();
 
-	if ( !content_name ) {
+	if ( !content_name )
 		return false;
-	}
 
 	uint8 LayoutMD5[ 16 ];
 
@@ -510,8 +509,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 
 	try
 	{
-		size_t content_name_len;
-		content_name_len = strlen( content_name );
+		size_t content_name_len = strlen( content_name );
 		if ( content_name_len > 4 )
 		{
 			const char* content_ext = content_name + content_name_len - 4;
@@ -586,7 +584,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 
 	memcpy( game_interface->MD5, LayoutMD5, 16 );
 
-	disc_calcgameid( game_interface->MD5, fd_id, sgid );
+	CalcGameID( game_interface->MD5, fd_id, sgid );
 
 	return true;
 }

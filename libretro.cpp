@@ -436,15 +436,11 @@ static void check_variables(bool startup)
 
 static bool MDFNI_LoadGame( const char *name )
 {
-   unsigned cpucache_emumode;
-   unsigned horrible_hacks = 0;
-   int cart_type;
-   unsigned region;
-
+   unsigned horrible_hacks   = 0;
    // .. safe defaults
-   region = SMPC_AREA_NA;
-   cart_type = CART_BACKUP_MEM;
-   cpucache_emumode = CPUCACHE_EMUMODE_DATA;
+   unsigned region           = SMPC_AREA_NA;
+   int cart_type             = CART_BACKUP_MEM;
+   unsigned cpucache_emumode = CPUCACHE_EMUMODE_DATA;
 
    // always set this.
    MDFNGameInfo = &EmulatedSS;
@@ -471,56 +467,51 @@ static bool MDFNI_LoadGame( const char *name )
             log_cb(RETRO_LOG_INFO, "Game ID is: %s\n", sgid );
 
             // test discs?
-            bool discs_ok;
-            if ( setting_disc_test ) {
-               discs_ok = disc_test();
-            } else {
-               discs_ok = true; // OK!
-            }
+            bool discs_ok = true;
+            if ( setting_disc_test )
+               discs_ok = DiscSanityChecks();
 
             if ( discs_ok )
             {
-               disc_detect_region( &region );
+               DetectRegion( &region );
 
                DB_Lookup(nullptr, sgid, fd_id, &region, &cart_type, &cpucache_emumode );
                horrible_hacks = DB_LookupHH(sgid, fd_id);
 
                // forced region setting?
-               if ( setting_region != 0 ) {
+               if ( setting_region != 0 )
                   region = setting_region;
-               }
 
                // forced cartridge setting?
-               if ( setting_cart != CART__RESERVED ) {
+               if ( setting_cart != CART__RESERVED )
                   cart_type = setting_cart;
-               }
 
                // GO!
-               if ( InitCommon( cpucache_emumode, horrible_hacks, cart_type, region ) )
+               if ( InitCommon( cpucache_emumode,
+                    horrible_hacks, cart_type, region ) )
                {
                   MDFN_LoadGameCheats(NULL);
                   MDFNMP_InstallReadPatches();
 
                   return true;
                }
-               else
-               {
-                  // OK it's really bad. Probably don't have a BIOS if InitCommon
-                  // fails. We can't continue as an emulator and will show a blank
-                  // screen.
 
-                  disc_cleanup();
+               // OK it's really bad. Probably don't 
+               // have a BIOS if InitCommon
+               // fails. We can't continue as an 
+               // emulator and will show a blank
+               // screen.
 
-                  return false;
-               }
+               disc_cleanup();
 
-            }; // discs okay?
+               return false;
+            } // discs okay?
 
-         }; // load content
+         } // load content
 
-      }; // supported extension?
+      } // supported extension?
 
-   }; // valid name?
+   } // valid name?
 
    //
    // Drop to BIOS
@@ -528,14 +519,12 @@ static bool MDFNI_LoadGame( const char *name )
    disc_cleanup();
 
    // forced region setting?
-   if ( setting_region != 0 ) {
+   if ( setting_region != 0 )
       region = setting_region;
-   }
 
    // forced cartridge setting?
-   if ( setting_cart != CART__RESERVED ) {
+   if ( setting_cart != CART__RESERVED )
       cart_type = setting_cart;
-   }
 
    // Initialise with safe parameters
    InitCommon( cpucache_emumode, horrible_hacks, cart_type, region );

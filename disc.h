@@ -11,9 +11,9 @@ void disc_init( retro_environment_t environ_cb );
 
 void disc_cleanup(void);
 
-bool disc_detect_region( unsigned* region );
+bool DetectRegion( unsigned* region );
 
-bool disc_test();
+bool DiscSanityChecks(void);
 
 void disc_select( unsigned disc_num );
 
