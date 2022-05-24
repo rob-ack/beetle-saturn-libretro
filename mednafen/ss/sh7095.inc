@@ -541,6 +541,9 @@ void SH7095::DMA_StartSG(void)
 }
 
 // Must be called after DMACH[0].CHCR or DMACH[1].CHCR or DMAOR changes.
+//
+// If DMA_RunCond(...) returns false, SAR and DAR and TCR for that channel
+// should not be used(due to caching of variables in DMA_DoTransfer()).
 NO_INLINE void SH7095::DMA_RecalcRunning(void)
 {
  DMA_PenaltyKludgeAmount = 0;
@@ -562,16 +565,6 @@ NO_INLINE void SH7095::DMA_RecalcRunning(void)
  //
  //
  //
- if(ss_dbg_mask & (SS_DBG_WARNING | SS_DBG_SH2))
- {
-  for(unsigned ch = 0; ch < 2; ch++)
-  {
-   if(DMA_RunCond(ch) && ((DMACH[ch].CHCR >> 10) & 3) == 3 && ((DMACH[ch].SAR | DMACH[ch].DAR) & 0xF))
-   {
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] DMA channel %u, 16-byte transfer size address misalignment, SAR=0x%08x DAR=0x%08x", cpu_name, ch, DMACH[ch].SAR, DMACH[ch].DAR);
-   }
-  }
- }
 }
 
 INLINE void SH7095::DMA_BusTimingKludge(void)
