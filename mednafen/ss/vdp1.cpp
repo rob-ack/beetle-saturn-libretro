@@ -654,8 +654,6 @@ static INLINE void DoDrawing(void)
    for(unsigned i = 0; i < 16; i++)
     VRAMUsageDrawRead((CurCommandAddr + i) * 2);
 
-   //SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Command @ 0x%06x: 0x%04x\n", CurCommandAddr, cmd_data[0]);
-
    if(MDFN_LIKELY(!(CommandData[0] & 0xC000)))
    {
     if(MDFN_UNLIKELY((CommandData[0] & 0xF) >= 0xC))
@@ -706,7 +704,6 @@ static INLINE void DoDrawing(void)
    }
    else if(MDFN_UNLIKELY(CommandData[0] & 0x8000))
    {
-    SS_DBGTI(SS_DBG_VDP1, "[VDP1] Drawing finished at 0x%05x", CurCommandAddr);
     DrawingActive = false;
     VRAMUsageEnd();
 
@@ -762,7 +759,6 @@ sscpu_timestamp_t Update(sscpu_timestamp_t timestamp)
   // Don't else { } normal execution, since this bug condition miiight occur in the call from SetHBVB(),
   // and we need drawing to start ASAP before silly games overwrite the beginning of the command table.
   //
-  SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] [BUG] timestamp(%d) < lastts(%d)", timestamp, lastts);
   timestamp = lastts;
  }
  //
@@ -791,13 +787,6 @@ sscpu_timestamp_t Update(sscpu_timestamp_t timestamp)
 
 static void StartDrawing(void)
 {
- if(DrawingActive)
- {
-  SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Drawing interrupted by new drawing start request.");
- }
-
- SS_DBGTI(SS_DBG_VDP1, "[VDP1] Started drawing to framebuffer %d.", FBDrawWhich);
-
  // On draw start, clear CEF.
  EDSR &= ~0x2;
 
@@ -829,7 +818,6 @@ void SetHBVB(const sscpu_timestamp_t event_timestamp, const bool new_hb_status, 
    //
    if((TVMR & TVMR_VBE) || FBVBErasePending)
    {
-    SS_DBGTI(SS_DBG_VDP1, "[VDP1] VB erase start of framebuffer %d.", !FBDrawWhich);
 
     FBVBErasePending = false;
     FBVBEraseActive = true;
@@ -871,10 +859,7 @@ void SetHBVB(const sscpu_timestamp_t event_timestamp, const bool new_hb_status, 
       }
       count -= 8;
       if(MDFN_UNLIKELY(count <= 0))
-      {
-       SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] VB erase of framebuffer %d ran out of time.", !FBDrawWhich);
        goto AbortVBErase;
-      }
      } while(x < EraseParams.x_bound);
     } while(++y <= EraseParams.y_end);
 
@@ -895,15 +880,12 @@ void SetHBVB(const sscpu_timestamp_t event_timestamp, const bool new_hb_status, 
 
     if(DrawingActive)
     {
-     SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Drawing aborted by framebuffer swap.");
      DrawingActive = false;
      VRAMUsageEnd();
     }
 
     FBDrawWhich = !FBDrawWhich;
     FBDrawWhichPtr = FB[FBDrawWhich];
-
-    SS_DBGTI(SS_DBG_VDP1, "[VDP1] Displayed framebuffer changed to %d.", !FBDrawWhich);
 
     // On fb swap, copy CEF to BEF, clear CEF, and copy COPR to LOPR.
     EDSR = EDSR >> 1;
@@ -1048,12 +1030,9 @@ static INLINE void WriteReg(const unsigned which, const uint16 value)
  SS_SetEventNT(&events[SS_EVENT_VDP2], VDP2::Update(SH7095_mem_timestamp));
  sscpu_timestamp_t nt = Update(SH7095_mem_timestamp);
 
- SS_DBGTI(SS_DBG_VDP1_REGW, "[VDP1] Register write: 0x%02x: 0x%04x", which << 1, value);
-
  switch(which)
  {
   default:
-	SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Unknown write of value 0x%04x to register 0x%02x", value, which << 1);
 	break;
 
   case 0x0:	// TVMR
@@ -1094,7 +1073,6 @@ static INLINE void WriteReg(const unsigned which, const uint16 value)
 	 if(CycleCounter < 0)
 	  CycleCounter = 0;
 	 nt = SH7095_mem_timestamp + VDP1_IdleTimingGran;
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Program forced termination of VDP1 drawing.");
 	}
 	break;
 
@@ -1108,7 +1086,6 @@ static INLINE uint16 ReadReg(const unsigned which)
  switch(which)
  {
   default:
-	SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] Unknown read from register 0x%02x", which);
 	return 0;
 
   case 0x8:	// EDSR
@@ -1163,7 +1140,6 @@ MDFN_FASTCALL void Write8_DB(uint32 A, uint16 DB)
  if(A < 0x80000)
  {
   VRAMUsageWrite(A >> 1);
-  SS_DBGTI(SS_DBG_VDP1_VRAMW, "[VDP1] Write to VRAM: 0x%02x->VRAM[0x%05x]", (DB >> (((A & 1) ^ 1) << 3)) & 0xFF, A);
   ne16_wbo_be<uint8>(VRAM, A, DB >> (((A & 1) ^ 1) << 3) );
   return;
  }
@@ -1172,8 +1148,6 @@ MDFN_FASTCALL void Write8_DB(uint32 A, uint16 DB)
  {
   uint32 FBA = A;
 
-  SS_DBGTI(SS_DBG_VDP1_FBW, "[VDP1] Write to FB: 0x%02x->FB[%d][0x%05x] CycleCounter=%d", (DB >> (((A & 1) ^ 1) << 3)) & 0xFF, FBDrawWhich, A & 0x3FFFF, CycleCounter);
-
   if((TVMR & (TVMR_8BPP | TVMR_ROTATE)) == (TVMR_8BPP | TVMR_ROTATE))
    FBA = (FBA & 0x1FF) | ((FBA << 1) & 0x3FC00) | ((FBA >> 8) & 0x200);
 
@@ -1181,7 +1155,6 @@ MDFN_FASTCALL void Write8_DB(uint32 A, uint16 DB)
   return;
  }
 
- SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP1, "[VDP1] 8-bit write to 0x%08x(DB=0x%04x)", A, DB);
  WriteReg((A - 0x100000) >> 1, DB);
 }
 
@@ -1192,7 +1165,6 @@ MDFN_FASTCALL void Write16_DB(uint32 A, uint16 DB)
  if(A < 0x80000)
  {
   VRAMUsageWrite(A >> 1);
-  SS_DBGTI(SS_DBG_VDP1_VRAMW, "[VDP1] Write to VRAM: 0x%04x->VRAM[0x%05x]", DB, A);
   VRAM[A >> 1] = DB;
   return;
  }
@@ -1200,8 +1172,6 @@ MDFN_FASTCALL void Write16_DB(uint32 A, uint16 DB)
  if(A < 0x100000)
  {
   uint32 FBA = A;
-
-  SS_DBGTI(SS_DBG_VDP1_FBW, "[VDP1] Write to FB: 0x%04x->FB[%d][0x%05x] CycleCounter=%d", DB, FBDrawWhich, A & 0x3FFFF, CycleCounter);
 
   if((TVMR & (TVMR_8BPP | TVMR_ROTATE)) == (TVMR_8BPP | TVMR_ROTATE))
    FBA = (FBA & 0x1FF) | ((FBA << 1) & 0x3FC00) | ((FBA >> 8) & 0x200);

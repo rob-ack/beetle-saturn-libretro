@@ -863,18 +863,12 @@ static void Filter_DisconnectInput(const uint8 fnum)
   return;
 
  if(CDDevConn == fnum)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Filter 0x%02x input disconnected from CD device as side effect!\n", fnum);
   CDDevConn = 0xFF;
- }
 
  for(unsigned fs = 0; fs < 0x18; fs++)
  {
   if(Filters[fs].FalseConn == fnum)
-  {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Filter 0x%02x input disconnected from filter 0x%02x output as side effect!\n", fnum, fs);
    Filters[fs].FalseConn = 0xFF;
-  }
  }
 }
 
@@ -1049,14 +1043,7 @@ static bool FLS_Run(void)
  //printf("%d, %d\n", Partitions[FLS.pnum].Count, FreeBufferCount);
 
  if(FLS.Abort)
- {
-  if(FLS.Active)
-  {
-   SS_DBG(SS_DBG_CDB, "[CDB] FLS Abort: %d %d\n", FLS.Active, FLS.DoAuth);
-  }
-
   goto Abort;
- }
 
  //
  FLS_PROLOGUE;
@@ -1343,12 +1330,6 @@ static void DT_SetIBOffsCount(const uint8* sd)
 	DT.InBufOffs = 0;
 	DT.InBufCounter = 1176;
 	break;
- }
-
- if(!DT.Writing)
- {
-  const uint32 fad = AMSF_to_ABA(BCD_to_U8(sd[12 + 0]), BCD_to_U8(sd[12 + 1]), BCD_to_U8(sd[12 + 2]));
-  SS_DBG(SS_DBG_CDB, "[CDB] DT FAD: %08x --- %d %d\n", fad, DT.InBufOffs, DT.InBufCounter);
  }
 }
 
@@ -1721,8 +1702,6 @@ static uint8 FilterBuf(const unsigned fnum, const unsigned bfsidx)
  unsigned max_iter = 0x18;
  //uint32 done = 0;
 
- SS_DBG(SS_DBG_CDB, "[CDB] DT FilterBuf: fad=0x%08x -- %02x %02x --- %02x %02x\n", AMSF_to_ABA(BCD_to_U8(Buffers[bfsidx].Data[12 + 0]), BCD_to_U8(Buffers[bfsidx].Data[12 + 1]), BCD_to_U8(Buffers[bfsidx].Data[12 + 2])), fnum, bfsidx, (fnum == 0xFF) ? 0xFF : Filters[fnum].TrueConn, (fnum == 0xFF) ? 0xFF : Filters[fnum].FalseConn);
-
  while(cur != 0xFF && max_iter--)
  {
   if(TestFilterCond(cur, Buffers[bfsidx].Data))
@@ -1828,7 +1807,6 @@ static void CDStatusResults(const bool rejected = false, const uint8 hb = 0)
 {
  MakeReport(rejected, hb);
 
- SS_DBG(SS_DBG_CDB, "[CDB]   Results: %04x %04x %04x %04x\n", Results[0], Results[1], Results[2], Results[3]);
  ResultsRead = false;
  CommandPending = false;
  TriggerIRQ(HIRQ_CMOK | SWResetHIRQDeferred);
@@ -1843,7 +1821,6 @@ static void BasicResults(uint32 res0, uint32 res1, uint32 res2, uint32 res3)
  Results[3] = res3;
  ResultsRead = false;
 
- SS_DBG(SS_DBG_CDB, "[CDB]   Results: %04x %04x %04x %04x\n", Results[0], Results[1], Results[2], Results[3]);
 
  CommandPending = false;
  TriggerIRQ(HIRQ_CMOK | SWResetHIRQDeferred);
@@ -1939,10 +1916,7 @@ static void ForceCompletePendingSeekStartup(void)
 static void StartSeek(const uint32 cmd_target, const uint32 cur_play_end, const uint32 cur_play_repeat, const uint32 play_end_irq_type, const bool no_pickup_change)
 {
  if(!Cur_CDIF)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] [BUG] StartSeek() called when no disc present or tray open.\n");
   return;
- }
 
  ForceCompletePendingSeekStartup();
  //
@@ -1980,10 +1954,7 @@ static void StartSeek(const uint32 cmd_target, const uint32 cur_play_end, const 
 static void StartScan(bool mode)
 {
  if(!Cur_CDIF)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] [BUG] StartScan() called when no disc present or tray open.\n");
   return;
- }
 
  ForceCompletePendingSeekStartup();
  //
@@ -2049,7 +2020,6 @@ static void CheckBufPauseResume(void)
 
   if(!end_met && FreeBufferCount)
   {
-   SS_DBG(SS_DBG_CDB, "[CDB] Resuming from buffer full pause (fast path).\n");
 #if 0
   CurPosInfo.status = STATUS_BUSY;
 #else
@@ -2327,10 +2297,7 @@ static void Drive_Run(int64 clocks)
     case DRIVEPHASE_PAUSE:
         PeriodicIdleCounter = 17712LL << 32;
 
-	if(SecPreBuf_In)
-	{
-	 SS_DBG(SS_DBG_CDB, "[CDB] SecPreBuf_In=%d at sector read time(CurSector=%d, CurPosInfo.fad=%d).\n", CurSector, CurPosInfo.fad);
-	}
+	if(SecPreBuf_In) { }
 	else
 	{
 	 Cur_CDIF->ReadRawSector(SecPreBuf, CurSector - 150);
@@ -2389,7 +2356,6 @@ static void Drive_Run(int64 clocks)
 
       if(!end_met && FreeBufferCount)
       {
-       SS_DBG(SS_DBG_CDB, "[CDB] Resuming from buffer full pause.\n");
        CurPosInfo.status = STATUS_BUSY;
        DrivePhase = DRIVEPHASE_SEEK_START2;
        DriveCounter = (int64)SeekCPIUpdateDelay << 32;
@@ -2403,11 +2369,6 @@ static void Drive_Run(int64 clocks)
      SecPreBuf_In = false;
      if(PlayRepeatCounter >= CurPlayRepeat)
      {
-      if(PlayEndIRQType)
-       SS_DBG(SS_DBG_CDB, "[CDB] Starting play end pause.\n");
-      else
-       SS_DBG(SS_DBG_CDB, "[CDB] Starting pause.\n");
-
       CurSector = CurPosInfo.fad;
       CurPosInfo.status = STATUS_BUSY;
       DrivePhase = DRIVEPHASE_PAUSE;
@@ -2426,7 +2387,6 @@ static void Drive_Run(int64 clocks)
     }
     else if((SubQBuf_Safe[0] & 0x40) && !FreeBufferCount)
     {
-     SS_DBG(SS_DBG_CDB, "[CDB] Starting buffer full pause.\n");
      SecPreBuf_In = false;
      CurPosInfo.status = STATUS_BUSY;
      DrivePhase = DRIVEPHASE_PAUSE;
@@ -2509,10 +2469,7 @@ static void ClearPendingSec(void)
 
 sscpu_timestamp_t CDB_Update(sscpu_timestamp_t timestamp)
 {
- if(MDFN_UNLIKELY(timestamp < lastts))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] [BUG] timestamp(%d) < lastts(%d)\n", timestamp, lastts);
- }
+ if(MDFN_UNLIKELY(timestamp < lastts)) { }
  else
  {
   int64 clocks = (int64)(timestamp - lastts) * CDB_ClockRatio;
@@ -2550,19 +2507,12 @@ sscpu_timestamp_t CDB_Update(sscpu_timestamp_t timestamp)
      CTR.CD[i] = CData[i];
 
     CTR.Command = CTR.CD[0] >> 8;
-    if(MDFN_UNLIKELY(ss_dbg_mask & SS_DBG_CDB))
-    {
-     char cdet[128];
-     GetCommandDetails(CTR.CD, cdet, sizeof(cdet));
-     SS_DBG(SS_DBG_CDB, "[CDB] Command: %s --- HIRQ=0x%04x, HIRQ_Mask=0x%04x --- %u\n", cdet, HIRQ, HIRQ_Mask, timestamp);
-    }
     //
     //
     CMD_EAT_CLOCKS(84); //90);
 
     if(FLS.Active && FLS.DoAuth)
     {
-     SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Command 0x%02x rejected due to in-progress disc authentication.\n", CTR.Command);
      BasicResults(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
     }
     //
@@ -2702,11 +2652,6 @@ sscpu_timestamp_t CDB_Update(sscpu_timestamp_t timestamp)
       DT.Active = false;
 
       BasicResults((MakeBaseStatus() << 8) | (DT.TotalCounter >> 16), DT.TotalCounter, 0, 0);
-
-      if(DT.InBufCounter > 0 || DT.FIFO_In > 0)
-      {
-       SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Data transfer ended prematurely at %u bytes left!\n", (DT.InBufCounter + DT.FIFO_In) * 2);
-      }
 
       if(DT.Writing)
       {
@@ -3881,8 +3826,6 @@ sscpu_timestamp_t CDB_Update(sscpu_timestamp_t timestamp)
     }
     else
     {
-     SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Unknown Command: 0x%04x 0x%04x 0x%04x 0x%04x --- HIRQ=0x%04x, HIRQ_Mask=0x%04x\n", CTR.CD[0], CTR.CD[1], CTR.CD[2], CTR.CD[3], HIRQ, HIRQ_Mask);
-
      ResultsRead = false;
      CommandPending = false;
     }
@@ -4059,13 +4002,6 @@ uint16 CDB_Read(uint32 offset)
 {
  uint16 ret = 0; //0xFFFF;
 
-#if 1
- if(offset >= 0x6 && offset <= 0x9 && CommandPending)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Read from register 0x%01x while busy processing command!\n", offset);
- }
-#endif
-
  switch(offset)
  {
   case 0x0:
@@ -4073,11 +4009,6 @@ uint16 CDB_Read(uint32 offset)
 	{
 	 if(DT.InBufCounter > 0)
 	  DT_ReadIntoFIFO();
-
-	 if(MDFN_UNLIKELY(!DT.FIFO_In))
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] DT FIFO underflow.\n");
-	 }
 
 	 ret = DT.FIFO[DT.FIFO_RP];
 	 DT.FIFO_RP = (DT.FIFO_RP + 1) % (sizeof(DT.FIFO) / sizeof(DT.FIFO[0]));
@@ -4109,15 +4040,6 @@ uint16 CDB_Read(uint32 offset)
 void CDB_Write_DBM(uint32 offset, uint16 DB, uint16 mask)
 {
  sscpu_timestamp_t nt = CDB_Update(SH7095_mem_timestamp);
-
- //SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Write %02x %04x %04x\n", offset, DB, mask);
-
-#if 1
- if(offset >= 0x6 && offset <= 0x9 && CommandPending)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_CDB, "[CDB] Write to register 0x%01x(DB=0x%04x, mask=0x%04x) while busy processing command!\n", offset, DB, mask);
- }
-#endif
 
  switch(offset)
  {

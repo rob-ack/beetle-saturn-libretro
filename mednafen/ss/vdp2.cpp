@@ -572,10 +572,7 @@ sscpu_timestamp_t Update(sscpu_timestamp_t timestamp)
  int32 clocks = (timestamp - lastts) >> 2;
 
  if(MDFN_UNLIKELY(timestamp < lastts))
- {
-  SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] [BUG] timestamp(%d) < lastts(%d)", timestamp, lastts);
   clocks = 0;
- }
 
  lastts += clocks << 2;
  //
@@ -612,14 +609,9 @@ static INLINE void RegsWrite(uint32 A, uint16 V)
 
  RawRegs[A >> 1] = V;
 
-#ifdef HAVE_DEBUG
- SS_DBGTI(SS_DBG_VDP2_REGW, "[VDP2] Register write 0x%03x: 0x%04x", A, V);
-#endif
-
  switch(A)
  {
   default:
-//	SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] Unknown write to register at 0x%08x of value 0x%04x", A, V);
 	break;
 
   case 0x00:
@@ -647,10 +639,6 @@ static INLINE void RegsWrite(uint32 A, uint16 V)
   case 0x06:
 	VRAMSize = (V >> 15) & 0x1;
 
-#ifdef HAVE_DEBUG
-	if(VRAMSize)
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] VRAMSize=%d (unemulated)", VRAMSize);
-#endif
 	break;
 
   case 0x0E:
@@ -710,7 +698,6 @@ static INLINE uint16 RegsRead(uint32 A)
  switch(A & 0x1FE)
  {
   default:
-	SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] Unknown read from 0x%08x", A);
 	return 0;
 
   case 0x00:
@@ -829,11 +816,6 @@ static INLINE uint32 RW(uint32 A, uint16* DB)
  {
   if(IsWrite)
   {
-#ifdef HAVE_DEBUG
-   if(sizeof(T) == 1)
-    SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] Byte-write to register at 0x%08x(DB=0x%04x)", A, *DB);
-#endif
-
    RegsWrite(A, *DB);
   }
   else
@@ -842,15 +824,8 @@ static INLINE uint32 RW(uint32 A, uint16* DB)
   return 0;
  }
 
- if(IsWrite)
- {
-  //SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] Unknown %zu-byte write to 0x%08x(DB=0x%04x)", sizeof(T), A, *DB);
- }
- else
- {
-  //SS_DBGTI(SS_DBG_WARNING | SS_DBG_VDP2, "[VDP2] Unknown %zu-byte read from 0x%08x", sizeof(T), A);
+ if(!IsWrite)
   *DB = 0;
- }
 
  return 0;
 }

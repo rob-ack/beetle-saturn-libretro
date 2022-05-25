@@ -1678,8 +1678,6 @@ switch(Pipe_ID >> 24)
 	//
 	if(MDFN_UNLIKELY(SBYCR & 0x80))
 	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Entering standby mode.\n", cpu_name);
-
 	 for(unsigned ch = 0; ch < 2; ch++)
 	 {
 	  DMACH[ch].CHCR = 0x00;
@@ -1728,8 +1726,6 @@ switch(Pipe_ID >> 24)
 	}
 	else 
 	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Exiting standby mode.\n", cpu_name);
-
 	 FRT_Reset();	// Reset again(for the counter) because we didn't stop clocking it.
 
 	 DoID(false);
@@ -1876,7 +1872,6 @@ switch(Pipe_ID >> 24)
 	//
 	if(MDFN_UNLIKELY(TPP(PEX_PSEUDO_EXTHALT)))
 	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Ext halt begin: Pipe_ID=0x%08x PC=0x%08x\n", cpu_name, Pipe_ID, PC);
 	 Pipe_ID = (Pipe_ID & 0x00FFFFFF) | (0xFE << 24);
 	 goto SkipPCInc;
 	}
@@ -1896,7 +1891,6 @@ switch(Pipe_ID >> 24)
 	}
 	else if(MDFN_UNLIKELY(TPP(PEX_PSEUDO_DMABURST)))
 	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Burst begin: Pipe_ID=0x%08x PC=0x%08x\n", cpu_name, Pipe_ID, PC);
 	 Pipe_ID = (Pipe_ID & 0x00FFFFFF) | (0xFE << 24);
 	 goto SkipPCInc;
 	}
@@ -1960,8 +1954,6 @@ switch(Pipe_ID >> 24)
 	  //	:"r"(0), "r"(0xFFFFFE88), "r"(0xA500 | 0x00)
 	  // 	: "memory");
 	  //
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2 | SS_DBG_SH2_EXCEPT, "[%s] Spurious EPENDING. IPR=0x%02x SR=0x%04x EPending=0x%08x Pipe_ID=0x%08x PC=0x%08x\n", cpu_name, opexec_ipr, SR, EPending, Pipe_ID, PC);
-
 	  Pipe_ID = (uint16)Pipe_ID;
 	  Pipe_ID |= InstrDecodeTab[Pipe_ID] << 24;
 	  goto SPEPRecover;
@@ -2017,7 +2009,6 @@ switch(Pipe_ID >> 24)
 	 if(Pipe_ID & (0xFF << EPENDING_PEXBITS_SHIFT))
 	  Pipe_ID |= EPENDING_OP_OR;
 
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Burst/External halt end: Pipe_ID=0x%08x PC=0x%08x\n", cpu_name, Pipe_ID, PC);
 	 goto SkipPCInc;
 	}
  END_OP

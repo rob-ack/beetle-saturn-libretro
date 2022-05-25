@@ -19,9 +19,6 @@
 ** 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
- static INLINE void SS_DBG(uint32 which, const char* format, ...) { }
- static INLINE void SS_DBGTI(uint32 which, const char* format, ...) { }
-
  template<unsigned which>
  static void SS_DBG_Wrap(const char* format, ...) noexcept
  {

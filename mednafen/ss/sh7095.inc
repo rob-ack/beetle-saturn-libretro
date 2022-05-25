@@ -643,8 +643,6 @@ INLINE void SH7095::DMA_DoTransfer(unsigned ch)
 
  if(!tcr)
  {
-  SS_DBGTI(SS_DBG_SH2, "[%s] DMA %d finished.", cpu_name, ch);
-
   DMACH[ch].CHCR |= 2;
   DMACH[ch].CHCRM |= 2;
   DMA_RecalcRunning();
@@ -661,7 +659,6 @@ sscpu_timestamp_t SH7095::DMA_Update(sscpu_timestamp_t et)
  if(MDFN_UNLIKELY(et < DMA_Timestamp))
  {
   // may happen...look into it.
-  // SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] DMA_Update called with et(%d) < DMA_Timestamp(%d).\n", cpu_name, et, DMA_Timestamp);
   return DMA_Timestamp + 32;
  }
  else if(MDFN_UNLIKELY(ExtHaltDMA))
@@ -917,7 +914,6 @@ void SH7095::FRT_WDT_Update(void)
    }
    else if(MDFN_UNLIKELY(WDT.WTCSR & 0x40))	// Watchdog timer mode
    {
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] WDT overflow in WDT mode!\n", cpu_name);
     WDT.RSTCSR |= 0x80;
 
     WDT.WTCNT = 0;
@@ -955,12 +951,6 @@ void SH7095::SetFTI(bool state)
 
  if((prev ^ state) & (prev ^ (FRT.TCR >> 7)))
  {
-  SS_DBGTI(SS_DBG_SH2, "[%s] FTI input capture triggered.", cpu_name);
-  if((FRT.FTCSR & 0x80) || (FRT.FTCSRM & 0x80))
-  {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] FTI Input capture interrupt while software not ready? FTCSR=0x%02x, FTCSRM=0x%02x\n", cpu_name, FRT.FTCSR, FRT.FTCSRM);
-  }
-
   FRT.FICR = FRT.FRC;
   if(!(FRT.FTCSR & 0x80))
   {
@@ -1154,8 +1144,6 @@ void SH7095::SCI_Reset(void)
 template<typename T>
 NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 {
- SS_DBGTI(SS_DBG_SH2_REGW, "[%s] %zu-byte write to on-chip register area; address=0x%08x value=0x%08x, PC=0x%08x\n", cpu_name, sizeof(T), A, V, PC);
-
  if(A & 0x100)
  {
   if(sizeof(T) == 2)
@@ -1172,7 +1160,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
   switch(A)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unhandled %zu-byte write to on-chip high register area; address=0x%08x value=0x%08x\n", cpu_name, sizeof(T), A, V);
 	break;
 
    //
@@ -1251,12 +1238,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	 const unsigned ch = (A >> 4) & 1;
 
 	 DMACH[ch].CHCR = (V & ~2) | (DMACH[ch].CHCR & (V | DMACH[ch].CHCRM) & 2);
-	 SS_DBGTI(SS_DBG_SH2, "[%s] DMA %d CHCR Write: CHCR=0x%04x SAR=0x%08x DAR=0x%08x TCR=0x%04x", cpu_name, ch, DMACH[ch].CHCR, DMACH[ch].SAR, DMACH[ch].DAR, DMACH[ch].TCR);
-
-	 if((DMACH[ch].CHCR & 0x1) && (DMACH[ch].CHCR & 0x3E8) != 0x200)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unhandled CHCR on DMA channel %u: 0x%08x\n", cpu_name, ch, DMACH[ch].CHCR);
-	 }
 	}
 	DMA_RecalcRunning();
 	DMA_StartSG();
@@ -1282,11 +1263,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.BCR1 = (BSC.BCR1 & 0x8000) | (V & 0x1FF7);
-
-	 if((BSC.BCR1 & 0x7FFF) != 0x3F1)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual BCR1 register value: 0x%04x\n", cpu_name, BSC.BCR1);
-	 }
 	}
 	break;
 
@@ -1294,11 +1270,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.BCR2 = V & 0xFC;
-
-	 if(BSC.BCR2 != 0xFC)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual BCR2 register value: 0x%02x\n", cpu_name, BSC.BCR2);
-	 }
 	}
 	break;
 
@@ -1306,11 +1277,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.WCR = V & 0xFFFF;
-
-	 if(BSC.WCR != 0x5555)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual WCR register value: 0x%04x\n", cpu_name, BSC.WCR);
-	 }
 	}
 	break;
 
@@ -1318,11 +1284,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.MCR = V & 0xFEFC;
-
-	 if(BSC.MCR != 0x0078 && BSC.MCR != 0x0070)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual MCR register value: 0x%04x\n", cpu_name, BSC.MCR);
-	 }
 	}
 	break;
 
@@ -1330,11 +1291,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.RTCSR = (V & 0x78) | (BSC.RTCSR & 0x80 & (V | ~BSC.RTCSRM));
-
-	 if((BSC.RTCSR & 0x78) != 0x08)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual RTCSR register value: 0x%02x\n", cpu_name, BSC.RTCSR);
-	 }
 	}
 	break;
 
@@ -1342,8 +1298,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.RTCNT = V & 0xFF;
-
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] RTCNT written with: 0x%02x\n", cpu_name, BSC.RTCNT);
 	}
 	break;
 
@@ -1351,11 +1305,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(sizeof(T) == 4 && (V & 0xFFFF0000) == 0xA55A0000)
 	{
  	 BSC.RTCOR = V & 0xFF;
-
-	 if(BSC.RTCOR != 0x36)
-	 {
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unusual RTCOR register value: 0x%02x\n", cpu_name, BSC.RTCOR);
-	 }
 	}
 	break;
   }
@@ -1380,7 +1329,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
   switch(A & 0xFF)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unhandled %zu-byte write to on-chip low register area; address=0x%08x value=0x%08x\n", cpu_name, sizeof(T), A, V);
 	break;
 
 #if 0
@@ -1588,10 +1536,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
 	if(WDT.WTCSR & 0x20)
 	 SBYCR &= 0x7F;
 
-	if(SBYCR != 0)
-	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] SBYCR set to non-zero value: 0x%02x\n", cpu_name, V);
-	}
 	break;
 
    case 0x92:	// No 0x93...0x9F mirrors for writes.
@@ -1629,10 +1573,6 @@ NO_INLINE MDFN_HOT void SH7095::OnChipRegWrite(uint32 A, uint32 V)
    case 0xE0:
    case 0xE1:
 	ICR = (ICR &~ mask) | ((V << shift) & mask & 0x0101);
-	if(ICR & 0x0100)
-	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] NMIE=1\n", cpu_name);
-	}
 	RecalcPendingIntPEX();
 	break;
 
@@ -1670,7 +1610,6 @@ INLINE T SH7095::OnChipRegRead_INLINE(uint32 A)
   switch(A)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unhandled %zu-byte read from on-chip high register area; address=0x%08x\n", cpu_name, sizeof(T), A);
 	break;
 
    //
@@ -1810,14 +1749,12 @@ INLINE T SH7095::OnChipRegRead_INLINE(uint32 A)
 	ret = BSC.RTCSR;
 	BSC.RTCSRM = BSC.RTCSR & 0x80;
 
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Read from RTCSR\n", cpu_name);
 	break;
 
    case 0xF4:	// RTCNT
    case 0xF6:
 	ret = BSC.RTCNT;
 
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Read from RTCNT\n", cpu_name);
 	break;
 
    case 0xF8:	// RTCOR
@@ -1850,7 +1787,6 @@ INLINE T SH7095::OnChipRegRead_INLINE(uint32 A)
   else switch(Am)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Unhandled %zu-byte read from on-chip low register area; address=0x%08x\n", cpu_name, sizeof(T), A);
 	break;
 
 #if 0
@@ -2328,8 +2264,6 @@ INLINE void SH7095::Cache_AssocPurge(const uint32 A)
  const uint32 ATM = A & (0x7FFFF << 10);
  auto* cent = &Cache[(A >> 4) & 0x3F];
 
- SS_DBG(SS_DBG_SH2_CACHE_NOISY, "[%s] Associative purge; address=0x%08x\n", cpu_name, A);
-
  // Ignore two-way-mode bit in CCR here.
  cent->Tag[0] |= (ATM == cent->Tag[0]);	// Set invalid bit to 1.
  cent->Tag[1] |= (ATM == cent->Tag[1]);
@@ -2383,8 +2317,6 @@ INLINE void SH7095::Cache_WriteAddressArray(uint32 A, T V)
  const unsigned way = (CCR >> 6) & 0x3;
  const unsigned ena = (A >> 4) & 0x3F;
 
- SS_DBG(SS_DBG_SH2_CACHE_NOISY, "[%s] %zu-byte write to cache address array area; address=0x%08x value=0x%x\n", cpu_name, sizeof(T), A, V);
-
  Cache[ena].Tag[way] = (A & (0x7FFFF << 10)) | (!(A & 0x4));
  Cache_LRU[ena] = (V >> 4) & 0x3F;
 }
@@ -2395,8 +2327,6 @@ INLINE void SH7095::Cache_WriteDataArray(uint32 A, T V)
  const unsigned way = (A >> 10) & 0x3;
  const unsigned ena = (A >> 4) & 0x3F;
 
- SS_DBG(SS_DBG_SH2_CACHE_NOISY, "[%s] %zu-byte write to cache data array area; address=0x%08x value=0x%x\n", cpu_name, sizeof(T), A, V);
-
  MDFN_ennsb<T, true>(&Cache[ena].Data[way][NE32ASU8_IDX_ADJ(T, A & 0x0F)], V);
 }
 
@@ -2405,8 +2335,6 @@ INLINE T SH7095::Cache_ReadAddressArray(uint32 A)
 {
  const unsigned way = (CCR >> 6) & 0x3;
  const unsigned ena = (A >> 4) & 0x3F;
-
- SS_DBG(SS_DBG_SH2_CACHE_NOISY, "[%s] %zu-byte read from cache address array area; address=0x%08x\n", cpu_name, sizeof(T), A);
 
  return (Cache[ena].Tag[way] & (0x7FFFF << 10)) | ((~Cache[ena].Tag[way] & 1) << 2) | (Cache_LRU[ena] << 4);
 }
@@ -2417,18 +2345,12 @@ INLINE T SH7095::Cache_ReadDataArray(uint32 A)
  const unsigned way = (A >> 10) & 0x3;
  const unsigned ena = (A >> 4) & 0x3F;
 
- SS_DBG(SS_DBG_SH2_CACHE_NOISY, "[%s] %zu-byte read from cache data array area; address=0x%08x\n", cpu_name, sizeof(T), A);
-
  return MDFN_densb<T, true>(&Cache[ena].Data[way][NE32ASU8_IDX_ADJ(T, A & 0x0F)]);
 }
 
 template<typename T>
 INLINE void SH7095::Cache_CheckReadIncoherency(CacheEntry* cent, const int way, const uint32 A)
 {
- if((SH7095_FastMap[A >> SH7095_EXT_MAP_GRAN_BITS] + (A & ~((1U << SH7095_EXT_MAP_GRAN_BITS) - 1))) == (uintptr_t)fmap_dummy)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2_CACHE | SS_DBG_SH2_CACHE_NOISY, "[%s] Cacheable %zu-byte read from non-RAM address 0x%08x!\n", cpu_name, sizeof(T), A);
- else if(ne16_rbo_be<T>(SH7095_FastMap[A >> SH7095_EXT_MAP_GRAN_BITS], A) != MDFN_densb<T, true>(&cent->Data[way][NE32ASU8_IDX_ADJ(T, A & 0x0F)]))
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2_CACHE | SS_DBG_SH2_CACHE_NOISY, "[%s] Cache incoherency for %zu-byte read from address 0x%08x!\n", cpu_name, sizeof(T), A);
 }
 
 #define MemRead(IsInstr, T, region, CacheEnabled, A_, outval_, A, unmasked_A, cent, way_match)			\
@@ -2443,7 +2365,6 @@ INLINE void SH7095::Cache_CheckReadIncoherency(CacheEntry* cent, const int way, 
  {														\
   if(MDFN_UNLIKELY(A & (sizeof(T) - 1)))									\
   {														\
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Misaligned %zu-byte read from 0x%08x\n", cpu_name, sizeof(T), A);	\
    A &= ~(sizeof(T) - 1);											\
    SetPEX(PEX_CPUADDR);												\
   }														\
@@ -2568,7 +2489,6 @@ INLINE void SH7095::Cache_CheckReadIncoherency(CacheEntry* cent, const int way, 
 										\
  if(MDFN_UNLIKELY(A & (sizeof(T) - 1)))						\
  {										\
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] Misaligned %zu-byte write of 0x%08x to 0x%08x\n", cpu_name, sizeof(T), V, A);	\
   A &= ~(sizeof(T) - 1);							\
   SetPEX(PEX_CPUADDR);								\
  }										\
@@ -2670,9 +2590,6 @@ static NO_INLINE MDFN_HOT MDFN_FASTCALL void C_MemWriteRT(uint32 A, T V)
 
 INLINE void SH7095::SetCCR(uint8 V)
 {
- if(CCR != V)
-  SS_DBG(SS_DBG_SH2_CACHE | SS_DBG_SH2_CACHE_NOISY, "[%s] CCR changed: 0x%02x->0x%02x%s\n", cpu_name, CCR, V, (V & CCR_CP) ? " (CACHE PURGE!)" : "");
-
  if(V & CCR_CP)
  {
   for(unsigned entry = 0; entry < 64; entry++)
@@ -2801,8 +2718,6 @@ void SH7095::SetNMI(bool level)
  //printf("NMI: %d, %d %d\n", NMILevel, level, (bool)(ICR & 0x100));
  if(NMILevel != level && level == (bool)(ICR & 0x100))
  {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] NMI - Standby=%u\n", cpu_name, Standby);
-
   SetPEX(PEX_NMI);
 
   if(Standby)
@@ -3180,8 +3095,6 @@ static const uint8 InstrDecodeTab[65536] =
 									\
  if(DebugMode)								\
   DBG_AddBranchTrace(this - CPU, new_PC, (exnum), (vecnum));		\
-									\
- SS_DBGTI(SS_DBG_SH2_EXCEPT, "[%s] Exception %s, New PC=0x%08x, New R15=0x%08x", cpu_name, ((exnum) == EXCEPTION_RESET ? "RESET" : "POWERON"), new_PC, R[15]); \
 }
 
 #define Exception(exnum, vecnum, new_PC)				\
@@ -3205,7 +3118,6 @@ static const uint8 InstrDecodeTab[65536] =
  if(DebugMode)								\
   DBG_AddBranchTrace(this - CPU, new_PC, (exnum), (vecnum));		\
 									\
- SS_DBGTI(SS_DBG_SH2_EXCEPT, "[%s] Exception %u, vecnum=0x%02x, VBR=0x%08x, saved PC=0x%08x, New PC=0x%08x, New R15=0x%08x", cpu_name, (exnum), (vecnum), VBR, PC, new_PC, R[15]); \
 }
 
 

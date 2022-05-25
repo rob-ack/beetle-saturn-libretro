@@ -41,14 +41,11 @@ CartInfo Cart;
 template<typename T>
 static MDFN_HOT void DummyRead(uint32 A, uint16* DB)
 {
- // Don't set *DB here.
- SS_DBG(SS_DBG_WARNING, "[CART] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
 }
 
 template<typename T>
 static MDFN_HOT void DummyWrite(uint32 A, uint16* DB)
 {
- SS_DBG(SS_DBG_WARNING, "[CART] Unknown %zu-byte write to 0x%08x(DB=0x%04x)\n", sizeof(T), A, *DB);
 }
 
 static sscpu_timestamp_t DummyUpdate(sscpu_timestamp_t timestamp)

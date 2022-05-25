@@ -174,13 +174,8 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   //
   if(MDFN_UNLIKELY(A & 0x100000))
   {
-   if(IsWrite)
-    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte write of 0x%08x to revision-dependent address 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
-   else
-   {
-    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte read from revision-dependent address 0x%08x\n", sizeof(T), A);
+   if(!IsWrite)
     DB = DB | 0xFFFF;
-   }
 
    return;
   }
@@ -287,13 +282,6 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   SH7095_mem_timestamp += 4;
  else
   *SH2DMAHax += 4;
-
-#if 0
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING, "[SH2 BUS] Unknown %zu-byte write of 0x%08x to 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
- else
-  SS_DBG(SS_DBG_WARNING, "[SH2 BUS] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
-#endif
 }
 
 template<typename T, bool IsWrite>

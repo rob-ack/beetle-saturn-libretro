@@ -628,7 +628,6 @@ void SMPC_ProcessSlaveOffOn(void)
   CPU[1].SetActive(SlaveSH2On);
   SlaveSH2Pending = 0;
   //
-  SS_DBGTI(SS_DBG_SMPC, "[SMPC]  Slave pending processed; SlaveSH2On=%d", SlaveSH2On);
  }
 }
 
@@ -698,8 +697,6 @@ void SMPC_Write(const sscpu_timestamp_t timestamp, uint8 A, uint8 V)
  BusBuffer = V;
  A &= 0x3F;
 
- SS_DBGTI(SS_DBG_SMPC_REGW, "[SMPC] Write to 0x%02x:0x%02x", A, V);
-
  //
  // Call VDP2::Update() to prevent out-of-temporal-order calls to SMPC_Update() from here and the event system.
  //
@@ -717,34 +714,14 @@ void SMPC_Write(const sscpu_timestamp_t timestamp, uint8 A, uint8 V)
   case 0x04:
   case 0x05:
   case 0x06:
-	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
-	{
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Input register %u port written with 0x%02x while command 0x%02x is executing.", A, V, ExecutingCommand);
-	}
-
 	IREG[A] = V;
 	break;
 
   case 0x0F:
-	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
-	{
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Command port written with 0x%02x while command 0x%02x is still executing.", V, ExecutingCommand);
-	}
-
-	if(MDFN_UNLIKELY(PendingCommand >= 0))
-	{
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Command port written with 0x%02x while command 0x%02x is still pending.", V, PendingCommand);
-	}
-
 	PendingCommand = V;
 	break;
 
   case 0x31:
-	if(MDFN_UNLIKELY(SF))
-	{
-	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] SF port written while SF is 1.");
-	}
-
 	SF = true;
 	break;
 
@@ -788,7 +765,6 @@ void SMPC_Write(const sscpu_timestamp_t timestamp, uint8 A, uint8 V)
 	break;
 
   default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Unknown write of 0x%02x to 0x%02x\n", V, A);
 	break;
 
  }
@@ -810,27 +786,17 @@ uint8 SMPC_Read(const sscpu_timestamp_t timestamp, uint8 A)
  switch(A)
  {
   default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Unknown read from 0x%02x\n", A);
 	break;
 
   case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
   case 0x18: case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E: case 0x1F:
   case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27:
   case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
-	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Output register %u port read while command 0x%02x is executing.\n", A - 0x10, ExecutingCommand);
-	}
 
 	ret = OREG[(size_t)A - 0x10];
 	break;
 
   case 0x30:
-	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] SR port read while command 0x%02x is executing.\n", ExecutingCommand);
-	}
-
 	ret = SR;
 	break;
  
@@ -996,10 +962,7 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
  int64 clocks;
 
  if(MDFN_UNLIKELY(timestamp < lastts))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] [BUG] timestamp(%d) < lastts(%d)\n", timestamp, lastts);
   clocks = 0;
- }
  else
  {
   clocks = (int64)(timestamp - lastts) * SMPC_ClockRatio;
@@ -1081,8 +1044,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
    {
     OREG[0x1F] = ExecutingCommand;
 
-    SS_DBGTI(SS_DBG_SMPC, "[SMPC] Command 0x%02x --- 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", ExecutingCommand, IREG[0], IREG[1], IREG[2], IREG[3], IREG[4], IREG[5], IREG[6]);
-
     if(ExecutingCommand == CMD_MSHON)
     {
 
@@ -1148,8 +1109,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
     }
     else if(ExecutingCommand == CMD_INTBACK)
     {
-     //SS_DBGTI(SS_DBG_SMPC, "[SMPC] INTBACK IREG0=0x%02x, IREG1=0x%02x, IREG2=0x%02x, %d", IREG[0], IREG[1], IREG[2], vb);
-
      SR &= ~SR_NPE;
      if(IREG[0] & 0xF)
      {
@@ -1188,8 +1147,8 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
 
      if(IREG[1] & 0x8)
      {
-      #define JR_WAIT(cond)	{ SMPC_WAIT_UNTIL_COND((cond) || PendingVB); if(PendingVB) { SS_DBGTI(SS_DBG_SMPC, "[SMPC] abortjr wait"); goto AbortJR; } }
-      #define JR_EAT(n)		{ SMPC_EAT_CLOCKS(n); if(PendingVB) { SS_DBGTI(SS_DBG_SMPC, "[SMPC] abortjr eat"); goto AbortJR; } }
+      #define JR_WAIT(cond)	{ SMPC_WAIT_UNTIL_COND((cond) || PendingVB); if(PendingVB) { goto AbortJR; } }
+      #define JR_EAT(n)		{ SMPC_EAT_CLOCKS(n); if(PendingVB) { goto AbortJR; } }
       #define JR_WRNYB(val)															\
 	{																	\
 	 if(!JRS.OWP)																\
@@ -1207,7 +1166,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
 	   JR_WAIT((bool)(IREG[0] & 0x80) == JRS.NextContBit || (IREG[0] & 0x40));								\
            if(IREG[0] & 0x40)															\
            {																	\
-            SS_DBGTI(SS_DBG_SMPC, "[SMPC] Big Read Break");											\
             goto AbortJR;															\
 	   }																	\
 	   IR0WA = 0;																\
@@ -1237,7 +1195,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
 
       if(IREG[0] & 0x40)
       {
-       SS_DBGTI(SS_DBG_SMPC, "[SMPC] Break (early)");
        goto AbortJR;
       }
       IR0WA = 0;
@@ -1249,7 +1206,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
        JR_WAIT((bool)(IREG[0] & 0x80) == JRS.NextContBit || (IREG[0] & 0x40));
        if(IREG[0] & 0x40)
        {
-        SS_DBGTI(SS_DBG_SMPC, "[SMPC] Break");
         goto AbortJR;
        }
        IR0WA = 0;
@@ -1270,7 +1226,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
        SMPC_WAIT_UNTIL_COND_TIMEOUT(PendingVB, JRS.OptEatTime);
        if(PendingVB)
        {
-	SS_DBGTI(SS_DBG_SMPC, "[SMPC] abortjr timeopt");
 	goto AbortJR;
        }
        SS_SetEventNT(&events[SS_EVENT_MIDSYNC], timestamp + 1);
@@ -1499,7 +1454,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
       SlaveSH2Pending = 1;
       SS_RequestEHLExit();
       SMPC_WAIT_UNTIL_COND_SHORT(!SlaveSH2Pending);
-      SS_DBGTI(SS_DBG_SMPC, "[SMPC]  SlaveSH2Pending wait loop end.");
      }
     }
     else if(ExecutingCommand == CMD_SSHOFF)
@@ -1509,7 +1463,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
       SlaveSH2Pending = -1;
       SS_RequestEHLExit();
       SMPC_WAIT_UNTIL_COND_SHORT(!SlaveSH2Pending);
-      SS_DBGTI(SS_DBG_SMPC, "[SMPC]  SlaveSH2Pending wait loop end.");
      }
     }
    }

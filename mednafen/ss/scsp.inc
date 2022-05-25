@@ -351,13 +351,8 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  {
   if(MDFN_UNLIKELY(A >= 0x80000))
   {
-   if(IsWrite)
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] %zu-byte write of value 0x%08x to unmapped SCSP RAM address 0x%06x\n", sizeof(T), DBV, A);
-   else
-   {
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] %zu-byte read from unmapped SCSP RAM address 0x%06x\n", sizeof(T), A);
+   if(!IsWrite)
     DBV = 0;
-   }
   }
   else
   {
@@ -370,8 +365,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 
  if(A < 0x400)
  {
-  //if(IsWrite)
-  // SS_DBG(SS_DBG_SCSP_REGW, "[SCSP] %zu-byte write to slot 0x%02x register offset 0x%02x: 0x%0*x\n", sizeof(T), (A >> 5) & 0x1F, A & 0x1F, (int)(2 * sizeof(T)), DBV);
   //
   // Slot regs
   //
@@ -429,10 +422,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 
     case 0x06:
 	SRV &= 0x0FFF;
-	if(SRV & 0x0C00)
-	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
 
 	s->TotalLevel = SRV & 0xFF;
 	s->SoundDirect = (SRV >> 8) & 0x1;
@@ -464,10 +453,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 
     case 0x0A:
 	SRV &= 0x00FF;
-	if(SRV & 0x0080)
-	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
 	s->ToDSPLevel = SRV & 0x7;
 	s->ToDSPSelect = (SRV >> 3) & 0xF;
 	break;
@@ -565,8 +550,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	{
 	 if(!shift)
 	 {
-	  SS_DBG(SS_DBG_SCSP_MOBUF, "[SCSP] MOBUF write: 0x%02x\n", (uint8)DBV);
-
 	  MIDI_WriteOutput(DBV);
 	 }
 	}
@@ -609,8 +592,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	 // 0x02: blocks slot waveform playback from reading memory?
 	 // 0x01: messes up dsp or blocks dsp memory access? the ears are not happy!
 	 //
-	 if(DBV)
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Non-zero value written to test register: 0x%04x\n", DBV);
 	}
 	else
 	 DBV = 0;
@@ -939,13 +920,8 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown %zu-byte write of value 0x%08x to register address 0x%03x\n", sizeof(T), DBV, A);
- else
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown %zu-byte read from register address 0x%03x\n", sizeof(T), A);
+ if(!IsWrite)
   DBV = 0;
- }
 }
 
 
@@ -1021,16 +997,7 @@ INLINE void SS_SCSP::RunEG(Slot* s, const unsigned key_eg_scale, const uint32 sc
  ClockEG = ((scxc | (scxc >> ShiftAdj)) >> (ERateWBT + ShiftAdj)) & (bool)ERateNoScale;
 
  if(s->EnvPhase == ENV_PHASE_ATTACK && (ERateNoScale + key_eg_scale) >= 0x20)
- {
   ClockEG = false;
-
-#if 0
-  if(EnvLevelCache)
-  {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Slot %u stuck in EG attack phase @ EGL=0x%03x: AR=0x%02x, KRS=0x%01x, OCT=0x%01x\n", (unsigned)(s - Slots), EnvLevelCache, ERateNoScale, s->KRS, s->Octave);
-  }
-#endif
- }
 
  if(ClockEG)
  {
@@ -1257,13 +1224,6 @@ INLINE void SS_SCSP::RunDSP(void)
   const bool TWT = (instr >> 55) & 1;
   const unsigned TEMPReadAddr = ((instr >> 56) + DSP.MDEC_CT) & 0x7F;
 
-#if 0
-  if(!(step & 1) && (MWT || MRT))
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Memory access requested at even DSP step %u; 0x%016llx\n", step, instr);
-
-  if(MWT & MRT)
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] MWT and MRT both 1 at DSP step %u; 0x%016llx\n", step, instr);
-#endif
   //
   //
   if(IRA & 0x20)
