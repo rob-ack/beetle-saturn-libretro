@@ -50,12 +50,12 @@ static MDFN_jmp_buf jbuf;
 int16 IBuffer[1024][2];
 static uint32 IBufferCount;
 
-static INLINE void SCSP_SoundIntChanged(unsigned level)
+static INLINE void SCSP_SoundIntChanged(SS_SCSP* s, unsigned level)
 {
  SoundCPU.SetIPL(level);
 }
 
-static INLINE void SCSP_MainIntChanged(bool state)
+static INLINE void SCSP_MainIntChanged(SS_SCSP* s, bool state)
 {
  #ifndef MDFN_SSFPLAY_COMPILE
  SCU_SetInt(SCU_INT_SCSP, state);
