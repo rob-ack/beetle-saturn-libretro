@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* ss.cpp - Saturn Core Emulation and Support Functions
-**  Copyright (C) 2015-2020 Mednafen Team
+**  Copyright (C) 2015-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -36,8 +36,6 @@
 
 #include <bitset>
 #include <retro_miscellaneous.h>
-
-#include <zlib.h>
 
 extern MDFNGI EmulatedSS;
 
@@ -185,29 +183,40 @@ template<typename T, bool IsWrite>
 static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax, int32* SH2DMAHax)
 {
  //
- // Low(and kinda slow) work RAM
+ // Low(and kinda slow) work RAM 
  //
  if(A >= 0x00200000 && A <= 0x003FFFFF)
  {
-#if 0
-  if(A & 0x100000)
+  if(!SH2DMAHax)
+   SH7095_mem_timestamp += 7;
+  else
+   *SH2DMAHax += 7;
+
+  //
+  // VA0 and VA1 don't map DRAM in the upper 1MiB of the 2MiB region, and return 0xFFFF(~0) on reads.
+  // VA2 mirrors DRAM into the upper 1MiB for both reads and writes, which incidentally breaks "Myst" in the generator room due to
+  //	it trying to load a file that's too large to fit, wrapping around and corrupting essential data in the process.
+  // VA3+ behavior is untested.
+  //
+  // VA0/VA1 behavior is emulated here.
+  //
+  if(MDFN_UNLIKELY(A & 0x100000))
   {
    if(IsWrite)
-    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte write of 0x%08x to mirrored address 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
+    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte write of 0x%08x to revision-dependent address 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
    else
-    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte read from mirrored address 0x%08x\n", sizeof(T), A);
+   {
+    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte read from revision-dependent address 0x%08x\n", sizeof(T), A);
+    DB = DB | 0xFFFF;
+   }
+
+   return;
   }
-#endif
 
   if(IsWrite)
    ne16_wbo_be<T>(WorkRAML, A & 0xFFFFF, DB >> (((A & 1) ^ (2 - sizeof(T))) << 3));
   else
    DB = (DB & 0xFFFF0000) | ne16_rbo_be<uint16>(WorkRAML, A & 0xFFFFE);
-
-  if(!SH2DMAHax)
-   SH7095_mem_timestamp += 7;
-  else
-   *SH2DMAHax += 7;
 
   return;
  }
@@ -222,7 +231,7 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   else
    *SH2DMAHax += 8;
 
-  if(!IsWrite)
+  if(!IsWrite) 
    DB = (DB & 0xFFFF0000) | ne16_rbo_be<uint16>(BIOSROM, A & 0x7FFFE);
 
   return;
@@ -284,9 +293,8 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   if(!SH2DMAHax)
    SH7095_mem_timestamp += 8;
   else
-   *SH2DMAHax -= 8;
+   *SH2DMAHax += 8;
 
-  //printf("FT FRT%08x %zu %08x %04x %d %d\n", A, sizeof(T), A, V, SMPC_IsSlaveOn(), SH7095_mem_timestamp);
   if(IsWrite)
   {
    if(sizeof(T) != 1)
@@ -334,30 +342,12 @@ static INLINE void BusRW_DB_CS3(const uint32 A, uint32& DB, const bool BurstHax,
  //
  // CS3: High work RAM/SDRAM, 0x06000000 ... 0x07FFFFFF
  //
- if(A >= 0x06000000)
- {
-  if(!IsWrite || sizeof(T) == 4)
-   ne16_rwbo_be<uint32, IsWrite>(WorkRAMH, A & 0xFFFFC, &DB);
-  else
-   ne16_wbo_be<T>(WorkRAMH, A & 0xFFFFF, DB >> (((A & 3) ^ (4 - sizeof(T))) << 3));
-
-  if(!BurstHax)
-  {
-   if(!SH2DMAHax)
-   {
-    if(IsWrite)
-    {
-     SH7095_mem_timestamp = (SH7095_mem_timestamp + 4) &~ 3;
-    }
-    else
-    {
-     SH7095_mem_timestamp += 7;
-    }
-   }
-   else
-    *SH2DMAHax -= IsWrite ? 3 : 6;
-  }
- }
+ //  Timing is handled in BSC_BusWrite() and BSC_BusRead() in sh7095.inc
+ //
+ if(!IsWrite || sizeof(T) == 4)
+  ne16_rwbo_be<uint32, IsWrite>(WorkRAMH, A & 0xFFFFC, &DB);
+ else
+  ne16_wbo_be<T>(WorkRAMH, A & 0xFFFFF, DB >> (((A & 3) ^ (4 - sizeof(T))) << 3));
 }
 
 //
@@ -503,6 +493,7 @@ static MDFN_COLD void InitEvents(void)
 
  events[SS_EVENT_SCU_DMA].event_handler = SCU_UpdateDMA;
  events[SS_EVENT_SCU_DSP].event_handler = SCU_UpdateDSP;
+/*events[SS_EVENT_SCU_INT].event_handler = SCU_UpdateInt;*/
 
  events[SS_EVENT_SMPC].event_handler = SMPC_Update;
 
@@ -516,7 +507,9 @@ static MDFN_COLD void InitEvents(void)
  events[SS_EVENT_CART].event_handler = CART_GetEventHandler();
 
  events[SS_EVENT_MIDSYNC].event_handler = MidSync;
- events[SS_EVENT_MIDSYNC].event_time = SS_EVENT_DISABLED_TS;
+ //
+ //
+ SS_SetEventNT(&events[SS_EVENT_MIDSYNC], SS_EVENT_DISABLED_TS);
 }
 
 static void RebaseTS(const sscpu_timestamp_t timestamp)
@@ -594,6 +587,17 @@ void SS_SetEventNT(event_list_entry* e, const sscpu_timestamp_t next_timestamp)
 // Called from debug.cpp too.
 void ForceEventUpdates(const sscpu_timestamp_t timestamp)
 {
+#ifdef MDFN_ENABLE_DEV_BUILD
+ for(unsigned i = SS_EVENT__SYNFIRST + 1; i < SS_EVENT__SYNLAST; i++)
+ {
+  if(events[i].event_time > events[i].next->event_time)
+  {
+   printf("%u=%u, %u=%u\n", i, events[i].event_time, (unsigned)(events[i].next - events), events[i].next->event_time);
+   abort();
+  }
+ }
+#endif
+
  for(unsigned c = 0; c < 2; c++)
   CPU[c].ForceInternalEventUpdates();
 
@@ -1348,6 +1352,14 @@ INLINE bool EventsPacker::Restore(const unsigned state_version)
    et = SS_EVENT_DISABLED_TS;
   }
 
+  /*
+     if(state_version < 0x00102800 && i == SS_EVENT_SCU_INT)
+     {
+     eo = i;
+     et = SS_EVENT_DISABLED_TS;
+     }
+   */
+
   if(eo < eventcopy_first || eo >= eventcopy_bound)
    return false;
 
@@ -1438,6 +1450,8 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
  EventsPacker ep;
  ep.Save();
 
+ /* static_assert(sizeof(ep.event_order) == 12 && (SS_EVENT_SCU_INT - (SS_EVENT__SYNFIRST + 1)) == 11, "baaah"); */
+
  SFORMAT StateRegs[] =
  {
   // cur_clock_div
@@ -1446,6 +1460,12 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
   SFVAR(next_event_ts),
   SFPTR32N(ep.event_times, sizeof(ep.event_times) / sizeof(ep.event_times[0]), "event_times"),
   SFPTR8N(ep.event_order, sizeof(ep.event_order) / sizeof(ep.event_order[0]), "event_order"),
+/*
+  SFPTR32N(ep.event_times, 11, "event_times"),
+  SFPTR8N(ep.event_order, 11, "event_order"),
+  SFVARN(ep.event_times[11], "event_times[11]"),
+  SFVARN(ep.event_order[11], "event_order[11]"),
+*/
 
   SFVAR(SH7095_mem_timestamp),
   SFVAR(SH7095_BusLock),

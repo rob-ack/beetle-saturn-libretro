@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* db.cpp:
-**  Copyright (C) 2016-2020 Mednafen Team
+**  Copyright (C) 2016-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -101,7 +101,7 @@ static const struct
  { "T-7032H-50", CART_EXTRAM_1M, "Marvel Super Heroes (Europe)" },
  { "T-1215G", CART_EXTRAM_1M, "Marvel Super Heroes (Japan)" },
  { "T-3111G", CART_EXTRAM_1M, "Metal Slug (Japan)", gettext_noop("Game requirement.") },
- { "T-22205G", CART_EXTRAM_1M, "NO?l 3 (Japan)" },
+ { "T-22205G", CART_EXTRAM_1M, "NOël 3 (Japan)" },
  { "T-20114G", CART_EXTRAM_1M, "Pia Carrot e Youkoso!! 2 (Japan)" },
  { "T-3105G", CART_EXTRAM_1M, "Real Bout Garou Densetsu (Japan)", gettext_noop("Game requirement.") }, //  Incompatible with 4MiB extended RAM cart.
  { "T-3119G", CART_EXTRAM_1M, "Real Bout Garou Densetsu Special (Japan)", gettext_noop("Game requirement.") },
@@ -254,6 +254,7 @@ static const struct
  { "T-25302G2", NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Mahjong Doukyuusei Special (Japan)",	gettext_noop("Fixes missing background layer on disc 2.") },
  { "T-28901G",	NULL, NULL, CPUCACHE_EMUMODE_DATA_CB, "Mujintou Monogatari R - Futari no Love Love Island (Japan)", gettext_noop("Fixes glitches when character graphics change.") },
  { "T-14415G",	NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Ronde (Japan)", gettext_noop("Fixes missing graphics on the title screen, main menu, and elsewhere.") },
+ { "610602002",	NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Saturn Super Vol. 2 (Japan)", gettext_noop("Fixes flickering title screen in the \"Golden Axe - The Duel\" demo.") },
  { "81600",	NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Sega Saturn Choice Cuts (USA)", gettext_noop("Fixes FMV playback hangs and playback failures.") },
  { "610680501", NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Segakore Sega Bible Mogitate SegaSaturn (Japan)", gettext_noop("Fixes graphical glitch on the character select screen in the \"Zero Divide\" demo.") },
  { "T-18703G",	NULL, NULL, CPUCACHE_EMUMODE_DATA_CB,	"Shunsai (Japan)", gettext_noop("Fixes various graphical glitches.") },
@@ -312,13 +313,14 @@ static const struct
  { "T-25416H50",NULL, NULL, CPUCACHE_EMUMODE_FULL, "Rampage - World Tour (Europe)", gettext_noop("Fixes game hang.") }, 
  { "T-37401G",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Senken Kigyouden (Japan)", gettext_noop("Fixes dialogue text truncation.") },
  { "T-37401H",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Xian Jian Qi Xia Zhuan (Taiwan)", gettext_noop("Fixes dialogue text truncation.") },
+ { "T-30902G",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Senkutsu Katsuryu Taisen - Chaos Seed (Japan)", gettext_noop("Fixes inability to skip intro FMV.") },
  { "T-159056",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Slam 'n Jam 96 (Japan)", gettext_noop("Fixes minor FMV glitches.") },
  { "T-159028H", NULL, NULL, CPUCACHE_EMUMODE_FULL, "Slam 'n Jam 96 (USA)",	gettext_noop("Fixes minor FMV glitches.") },
  { "T-15902H50",NULL, NULL, CPUCACHE_EMUMODE_FULL, "Slam 'n Jam 96 (Europe)", gettext_noop("Fixes minor FMV glitches.") },
  { "T-8119G", 	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Space Jam (Japan)", 	gettext_noop("Fixes game crash.") },
  { "T-8125H",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Space Jam (USA)", 	gettext_noop("Fixes game crash.") },
  { "T-8125H-50",NULL, NULL, CPUCACHE_EMUMODE_FULL, "Space Jam (Europe)", 	gettext_noop("Fixes game crash.") },
- { "T-1807G", NULL, NULL, CPUCACHE_EMUMODE_FULL, "Thunder Force Gold Pack 1 (Japan)", gettext_noop("In \"Thunder Force III\", fixes explosion graphic glitches throughout the game and ship sprite glitches in the ending sequence.") },
+ { "T-1807G",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Thunder Force Gold Pack 1 (Japan)", gettext_noop("In \"Thunder Force III\", fixes explosion graphic glitches throughout the game and ship sprite glitches in the ending sequence.") },
  { "T-15903G",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Titan Wars (Japan)",	gettext_noop("Fixes minor FMV glitches.") },
  { "T-15911H",	NULL, NULL, CPUCACHE_EMUMODE_FULL, "Solar Eclipse (USA)",	gettext_noop("Fixes minor FMV glitches.") },
  { "T-15911H50",NULL, NULL, CPUCACHE_EMUMODE_FULL, "Titan Wars (Europe)",	gettext_noop("Fixes minor FMV glitches.") },
@@ -441,6 +443,13 @@ static const struct
  { "T-26105G", HORRIBLEHACK_VDP1RWDRAWSLOWDOWN, "Wolf Fang SS - Kuuga 2001 (Japan)", gettext_noop("Fixes graphical glitches.") },
  { "T-28004G", HORRIBLEHACK_VDP1RWDRAWSLOWDOWN,	"Yu-No (Japan)", gettext_noop("Reduces FMV tearing.") },
 
+/*
+ // Doesn't completely fix the problem.
+ { "T-12519H", HORRIBLEHACK_SCUINTDELAY,	"Loaded (USA)", gettext_noop("Fixes hang at end of level.") },
+ { "T-12301H", HORRIBLEHACK_SCUINTDELAY,	"Loaded (Europe)", gettext_noop("Fixes hang at end of level.") },
+ { "T-12504G", HORRIBLEHACK_SCUINTDELAY,	"Blood Factory (Japan)", gettext_noop("Fixes hang at end of level.") },
+*/
+
  // Still random hangs...wtf is this game doing...
  { "T-6006G", HORRIBLEHACK_NOSH2DMALINE106 | HORRIBLEHACK_VDP1INSTANT, "Thunderhawk II (Japan)", gettext_noop("Fixes hangs just before and during gameplay.") },
  { "T-11501H00", HORRIBLEHACK_NOSH2DMALINE106 | HORRIBLEHACK_VDP1INSTANT, "Thunderstrike II (USA)", gettext_noop("Fixes hangs just before and during gameplay.") },
@@ -463,7 +472,7 @@ static std::string FDIDToString(const uint8 (&fd_id)[16])
 {
        char tmp[ 128 ];
        sprintf( tmp, "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-		       fd_id[0], fd_id[1], fd_id[2], fd_id[3], fd_id[4], fd_id[5], fd_id[6], fd_id[7], fd_id[8], fd_id[9], fd_id[10], fd_id[11], fd_id[12], fd_id[13], fd_id[14], fd_id[15]);
+                      fd_id[0], fd_id[1], fd_id[2], fd_id[3], fd_id[4], fd_id[5], fd_id[6], fd_id[7], fd_id[8], fd_id[9], fd_id[10], fd_id[11], fd_id[12], fd_id[13], fd_id[14], fd_id[15]);
        return std::string( tmp );
 }
 
@@ -485,6 +494,11 @@ std::string DB_GetHHDescriptions(const uint32 hhv)
 
  if(hhv & HORRIBLEHACK_VDP1INSTANT)
   sv += "Execute VDP1 commands instantly. ";
+
+/*
+ if(hhv & HORRIBLEHACK_SCUINTDELAY)
+  sv += "Delay SCU interrupt generation after a write to SCU IMS unmasks a pending interrupt. ";
+*/
 
  return sv;
 }
@@ -567,7 +581,7 @@ void DB_GetInternalDB(std::vector<GameDB_Database>* databases)
  databases->push_back({
 	"cachemode",
 	gettext_noop("Cache Mode"),
-	gettext_noop("This database is used to automatically select cache emulation mode, to fix various logic and timing issues in games. The default cache mode is data-only(with no high-level bypass).\n\nThe cache mode \"Data-only, with high-level bypass\" is a hack of sorts, to work around cache coherency bugs in games. These bugs are typically masked on a real Saturn due to the effects of instruction fetches on the cache, but become a problem when only data caching is emulated.\n\nFull cache emulation is not enabled globally primarily due to the large increase in host CPU usage.")
+	gettext_noop("This database is used to automatically select cache emulation mode, to fix various logic and timing issues in games.  The default cache mode is data-only(with no high-level bypass).\n\nThe cache mode \"Data-only, with high-level bypass\" is a hack of sorts, to work around cache coherency bugs in games.  These bugs are typically masked on a real Saturn due to the effects of instruction fetches on the cache, but become a problem when only data caching is emulated.\n\nFull cache emulation is not enabled globally primarily due to the large increase in host CPU usage.")
 	});
  for(auto& c : cemdb)
  {

@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* sound.cpp - Sound Emulation
-**  Copyright (C) 2015-2020 Mednafen Team
+**  Copyright (C) 2015-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -47,7 +47,7 @@ static sscpu_timestamp_t lastts;
 
 static MDFN_jmp_buf jbuf;
 
-int16_t IBuffer[1024][2];
+int16 IBuffer[1024][2];
 static uint32 IBufferCount;
 
 static INLINE void SCSP_SoundIntChanged(unsigned level)
@@ -187,6 +187,17 @@ static NO_INLINE void RunSCSP(void)
  bp[0] = (bp[0] * 27 + 16) >> 5;
  bp[1] = (bp[1] * 27 + 16) >> 5;
 
+/*
+ // TODO?  Need to measure frequency response more reliably first, ideally after capacitor
+ // replacement.  Should probably be controlled by a boolean setting, too.
+ for(unsigned lr = 0; lr < 2; lr++)
+ {
+  static int32 filt[2];
+  filt[lr] += (((int64)(int32)((uint32)bp[lr] << 16) - filt[lr]) * 60500) >> 16;
+  bp[lr] = filt[lr] >> 16;
+ }
+*/
+
  IBufferCount = (IBufferCount + 1) & 1023;
  next_scsp_time += 256;
 }
@@ -226,13 +237,17 @@ sscpu_timestamp_t SOUND_Update(sscpu_timestamp_t timestamp)
  return timestamp + 128;	// FIXME
 }
 
+void SOUND_StartFrame(double rate, uint32 quality)
+{
+}
+
 int32 SOUND_FlushOutput(void)
 {
-  int32 ret = IBufferCount;
+ int32 ret = IBufferCount;
 
-  IBufferCount = 0;
+ IBufferCount = 0;
 
-  return(ret);
+ return(ret);
 }
 
 void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
@@ -249,7 +264,7 @@ void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
  next_scsp_time -= SoundCPU.timestamp;
  run_until_time -= (int64)SoundCPU.timestamp << 32;
 
-   MDFNSS_StateAction(sm, load, data_only, StateRegs, "SOUND", false);
+ MDFNSS_StateAction(sm, load, data_only, StateRegs, "SOUND", false);
 
  next_scsp_time += SoundCPU.timestamp;
  run_until_time += (int64)SoundCPU.timestamp << 32;
@@ -261,7 +276,6 @@ void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
 
 //
 //
-// TODO: test masks.
 //
 template<typename T>
 static MDFN_FASTCALL T SoundCPU_BusRead(uint32 A)
