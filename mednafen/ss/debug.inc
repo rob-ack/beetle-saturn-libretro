@@ -34,3 +34,4 @@ static MDFN_COLD INLINE void DBG_CPUHandler(void) { }
 
 static INLINE bool DBG_NeedCPUHooks(void) { return false; }
 static INLINE void DBG_SetEffTS(const sscpu_timestamp_t eff_ts) { }
+static INLINE bool DBG_InSlaveStep(void) { return false; }
