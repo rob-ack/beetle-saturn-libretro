@@ -24,21 +24,16 @@
 // registers whose values may change between the individual byte reads.
 // (May not be worth emulating if it could possibly trigger problems in games)
 
-#include <mednafen/mednafen.h>
-#include <mednafen/hw_cpu/m68k/m68k.h>
+#include "../mednafen.h"
+#include "../hw_cpu/m68k/m68k.h"
 
-#ifndef MDFN_SSFPLAY_COMPILE
 #include "ss.h"
 #include "sound.h"
 #include "scu.h"
 #include "cdb.h"
 
-#else
-namespace MDFN_IEN_SSFPLAY
-{
-#endif
-
 #include "scsp.h"
+#include "debug.inc"
 
 static SS_SCSP SCSP;
 
@@ -123,13 +118,19 @@ void SOUND_PokeRAM(uint32 A, uint8 V)
  ne16_wbo_be<uint8>(SCSP.GetRAMPtr(), A & 0x7FFFF, V);
 }
 
-void SOUND_ResetTS(void)
+static INLINE void ResetTS_68K(void)
 {
  next_scsp_time -= SoundCPU.timestamp;
  run_until_time -= (int64)SoundCPU.timestamp << 32;
  SoundCPU.timestamp = 0;
+}
 
- lastts = 0;
+void SOUND_AdjustTS(const int32 delta)
+{
+ ResetTS_68K();
+ //
+ //
+ lastts += delta;
 }
 
 void SOUND_Reset(bool powering_up)
@@ -352,4 +353,3 @@ void SOUND_SetSCSPRegister(const unsigned id, const uint32 value)
 #ifdef MDFN_SSFPLAY_COMPILE
 }
 #endif
-

@@ -17,6 +17,6 @@ bool DiscSanityChecks(void);
 
 void disc_select( unsigned disc_num );
 
-bool disc_load_content( MDFNGI* game_inteface, const char *name, uint8* fd_id, char* sgid );
+bool disc_load_content( MDFNGI* game_inteface, const char *name, uint8* fd_id, char* sgid, char *sgname, char *sgarea );
 
 #endif

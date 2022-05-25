@@ -132,10 +132,10 @@ enum
 
 };
 
-uint32 GetRegister(const unsigned id, char* const special, const uint32 special_len);
-void SetRegister(const unsigned id, const uint32 value);
-uint8 PeekVRAM(uint32 addr);
-void PokeVRAM(uint32 addr, const uint8 val);
+uint32 GetRegister(const unsigned id, char* const special, const uint32 special_len) MDFN_COLD;
+void SetRegister(const unsigned id, const uint32 value) MDFN_COLD;
+uint8 PeekVRAM(uint32 addr) MDFN_COLD;
+void PokeVRAM(uint32 addr, const uint8 val) MDFN_COLD;
 #ifdef HAVE_DEBUG
 void MakeDump(const std::string& path) MDFN_COLD;
 #endif

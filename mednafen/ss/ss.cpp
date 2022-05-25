@@ -30,6 +30,7 @@
 #include "../hash/sha256.h"
 #include "../hash/md5.h"
 #include "ss.h"
+#include "debug.inc"
 
 #include "../../disc.h"
 
@@ -71,6 +72,30 @@ static sscpu_timestamp_t MidSync(const sscpu_timestamp_t timestamp);
 #ifdef MDFN_ENABLE_DEV_BUILD
 uint32 ss_dbg_mask;
 static std::bitset<0x200> BWMIgnoreAddr[2]; // 0=read, 1=write
+
+void SS_DBG(uint32 which, const char* format, ...)
+{
+ if(MDFN_LIKELY(!(ss_dbg_mask & which)))
+  return;
+ //
+ va_list ap;
+ va_start(ap, format);
+ trio_vprintf(format, ap);
+ va_end(ap);
+}
+
+void SS_DBGTI(uint32 which, const char* format, ...)
+{
+ if(MDFN_LIKELY(!(ss_dbg_mask & which)))
+  return;
+ //
+ va_list ap;
+ va_start(ap, format);
+ trio_vprintf(format, ap);
+ va_end(ap);
+ //
+ trio_printf(" @Line=0x%03x, HPos=0x%03x, memts=%d\n", VDP2::PeekLine(), VDP2::PeekHPos(), SH7095_mem_timestamp);
+}
 #endif
 uint32 ss_horrible_hacks;
 
@@ -114,20 +139,11 @@ static uint32 SH7095_BusLock;
 static uint32 SH7095_DB;
 
 #include "scu.inc"
-#ifdef HAVE_DEBUG
-#include "debug.inc"
-#endif
-static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debug.inc
 
 static sha256_digest BIOS_SHA256;   // SHA-256 hash of the currently-loaded BIOS; used for save state sanity checks.
 static int ActiveCartType;		// Used in save states.
 static std::bitset<1U << (27 - SH7095_EXT_MAP_GRAN_BITS)> FMIsWriteable;
-
-template<typename T>
-static void INLINE SH7095_BusWrite(uint32 A, T V, const bool BurstHax, int32* SH2DMAHax);
-
-template<typename T>
-static T INLINE SH7095_BusRead(uint32 A, const bool BurstHax, int32* SH2DMAHax);
+static uint16 fmap_dummy[(1U << SH7095_EXT_MAP_GRAN_BITS) / sizeof(uint16)];
 
 /*
  SH-2 external bus address map:
@@ -173,6 +189,16 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
  //
  if(A >= 0x00200000 && A <= 0x003FFFFF)
  {
+#if 0
+  if(A & 0x100000)
+  {
+   if(IsWrite)
+    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte write of 0x%08x to mirrored address 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
+   else
+    SS_DBG(SS_DBG_WARNING, "[RAM] %zu-byte read from mirrored address 0x%08x\n", sizeof(T), A);
+  }
+#endif
+
   if(IsWrite)
    ne16_wbo_be<T>(WorkRAML, A & 0xFFFFF, DB >> (((A & 1) ^ (2 - sizeof(T))) << 3));
   else
@@ -181,7 +207,7 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   if(!SH2DMAHax)
    SH7095_mem_timestamp += 7;
   else
-   *SH2DMAHax -= 7;
+   *SH2DMAHax += 7;
 
   return;
  }
@@ -194,7 +220,7 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   if(!SH2DMAHax)
    SH7095_mem_timestamp += 8;
   else
-   *SH2DMAHax -= 8;
+   *SH2DMAHax += 8;
 
   if(!IsWrite)
    DB = (DB & 0xFFFF0000) | ne16_rbo_be<uint16>(BIOSROM, A & 0x7FFFE);
@@ -234,7 +260,7 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
   if(!SH2DMAHax)
    SH7095_mem_timestamp += 8;
   else
-   *SH2DMAHax -= 8;
+   *SH2DMAHax += 8;
 
   if(IsWrite)
   {
@@ -267,11 +293,8 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
    {
     const unsigned c = ((A >> 23) & 1) ^ 1;
 
-    if(!c || SMPC_IsSlaveOn())
-    {
-     CPU[c].SetFTI(true);
-     CPU[c].SetFTI(false);
-    }
+    CPU[c].SetFTI(true);
+    CPU[c].SetFTI(false);
    }
   }
   return;
@@ -283,16 +306,30 @@ static INLINE void BusRW_DB_CS0(const uint32 A, uint32& DB, const bool BurstHax,
  if(!SH2DMAHax)
   SH7095_mem_timestamp += 4;
  else
-  *SH2DMAHax -= 4;
+  *SH2DMAHax += 4;
 
+#if 0
  if(IsWrite)
   SS_DBG(SS_DBG_WARNING, "[SH2 BUS] Unknown %zu-byte write of 0x%08x to 0x%08x\n", sizeof(T), DB >> (((A & 1) ^ (2 - sizeof(T))) << 3), A);
  else
   SS_DBG(SS_DBG_WARNING, "[SH2 BUS] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
+#endif
 }
 
 template<typename T, bool IsWrite>
-static INLINE void BusRW_DB_CS123(const uint32 A, uint32& DB, const bool BurstHax, int32* SH2DMAHax)
+static INLINE void BusRW_DB_CS12(const uint32 A, uint32& DB, const bool BurstHax, int32* SH2DMAHax)
+{
+ //
+ // CS1 and CS2: SCU
+ //
+ if(!IsWrite)
+  DB = 0;
+
+ SCU_FromSH2_BusRW_DB<T, IsWrite>(A, &DB, SH2DMAHax);
+}
+
+template<typename T, bool IsWrite>
+static INLINE void BusRW_DB_CS3(const uint32 A, uint32& DB, const bool BurstHax, int32* SH2DMAHax)
 {
  //
  // CS3: High work RAM/SDRAM, 0x06000000 ... 0x07FFFFFF
@@ -320,102 +357,7 @@ static INLINE void BusRW_DB_CS123(const uint32 A, uint32& DB, const bool BurstHa
    else
     *SH2DMAHax -= IsWrite ? 3 : 6;
   }
-  return;
  }
-
- //
- // CS1 and CS2: SCU
- //
- if(!IsWrite)
-  DB = 0;
-
- SCU_FromSH2_BusRW_DB<T, IsWrite>(A, &DB, SH2DMAHax);
-}
-
-template<typename T>
-static void INLINE SH7095_BusWrite(uint32 A, T V, const bool BurstHax, int32* SH2DMAHax)
-{
- uint32 DB = SH7095_DB;
-
- if(A < 0x02000000)  // CS0, configured as 16-bit
- {
-  if(sizeof(T) == 4)
-  {
-   // TODO/FIXME: Don't allow DMA transfers to occur between the two 16-bit accesses.
-   //if(!SH2DMAHax)
-   // SH7095_BusLock++;
-
-   DB = (DB & 0xFFFF0000) | (V >> 16);
-   BusRW_DB_CS0<uint16, true>(A, DB, BurstHax, SH2DMAHax);
-
-   DB = (DB & 0xFFFF0000) | (uint16)V;
-   BusRW_DB_CS0<uint16, true>(A | 2, DB, BurstHax, SH2DMAHax);
-
-   //if(!SH2DMAHax)
-   // SH7095_BusLock--;
-  }
-  else
-  {
-   const uint32 shift = ((A & 1) ^ (2 - sizeof(T))) << 3;
-   const uint32 mask = (0xFFFF >> ((2 - sizeof(T)) * 8)) << shift;
-
-   DB = (DB & ~mask) | (V << shift);
-   BusRW_DB_CS0<T, true>(A, DB, BurstHax, SH2DMAHax);
-  }
- }
- else // CS1, CS2, CS3; 32-bit
- {
-  const uint32 shift = ((A & 3) ^ (4 - sizeof(T))) << 3;
-  const uint32 mask = (0xFFFFFFFF >> ((4 - sizeof(T)) * 8)) << shift;
-
-  DB = (DB & ~mask) | (V << shift); // //ne32_wbo_be<T>(&DB, A & 0x3, V);
-  BusRW_DB_CS123<T, true>(A, DB, BurstHax, SH2DMAHax);
- }
-
- SH7095_DB = DB;
-}
-
-template<typename T>
-static T INLINE SH7095_BusRead(uint32 A, const bool BurstHax, int32* SH2DMAHax)
-{
- uint32 DB = SH7095_DB;
- T ret;
-
- if(A < 0x02000000)  // CS0, configured as 16-bit
- {
-  if(sizeof(T) == 4)
-  {
-   // TODO/FIXME: Don't allow DMA transfers to occur between the two 16-bit accesses.
-   //if(!SH2DMAHax)
-   // SH7095_BusLock++;
-
-   BusRW_DB_CS0<uint16, false>(A, DB, BurstHax, SH2DMAHax);
-   ret = DB << 16;
-
-   BusRW_DB_CS0<uint16, false>(A | 2, DB, BurstHax, SH2DMAHax);
-   ret |= (uint16)DB;
-
-   //if(!SH2DMAHax)
-   // SH7095_BusLock--;
-  }
-  else
-  {
-   BusRW_DB_CS0<T, false>(A, DB, BurstHax, SH2DMAHax);
-   ret = DB >> (((A & 1) ^ (2 - sizeof(T))) << 3);
-  }
- }
- else // CS1, CS2, CS3; 32-bit
- {
-  BusRW_DB_CS123<T, false>(A, DB, BurstHax, SH2DMAHax);
-  ret = DB >> (((A & 3) ^ (4 - sizeof(T))) << 3);
-
-  // SDRAM leaves data bus in a weird state after read...
-  //if(A >= 0x06000000)
-  // DB = 0;
- }
-
- SH7095_DB = DB;
- return ret;
 }
 
 //
@@ -442,7 +384,7 @@ static MDFN_COLD void CheatMemWrite(uint32 A, uint8 V)
    {
     for(uint32 Abase = 0x00000000; Abase < 0x20000000; Abase += 0x08000000)
     {
-     CPU[c].Write_UpdateCache<uint8>(Abase + A, V);
+     CPU[c].Cache_WriteUpdate<uint8>(Abase + A, V);
     }
    }
   }
@@ -470,8 +412,6 @@ static void SetFastMemMap(uint32 Astart, uint32 Aend, uint16* ptr, uint32 length
   SH7095_FastMap[A >> SH7095_EXT_MAP_GRAN_BITS] = tmp - A;
  }
 }
-
-static uint16 fmap_dummy[(1U << SH7095_EXT_MAP_GRAN_BITS) / sizeof(uint16)];
 
 static MDFN_COLD void InitFastMemMap(void)
 {
@@ -506,7 +446,19 @@ void SS_SetPhysMemMap(uint32 Astart, uint32 Aend, uint16* ptr, uint32 length, bo
 
 #include "sh7095.inc"
 
-static bool Running;
+//
+// Running is:
+//   0 at end of (emulation) frame
+//
+//   1 during normal execution
+//
+//  -1 when we need to temporarily break out of the execution loop to
+//     e.g. handle turning the slave CPU on or off, which we can't
+//     safely do from an event handler due to the event handler
+//     potentially being called from deep within the memory read/write
+//     functions.
+//
+static int Running;
 event_list_entry events[SS_EVENT__COUNT];
 
 static sscpu_timestamp_t next_event_ts;
@@ -585,6 +537,14 @@ static void RebaseTS(const sscpu_timestamp_t timestamp)
 
 void SS_SetEventNT(event_list_entry* e, const sscpu_timestamp_t next_timestamp)
 {
+#ifdef MDFN_ENABLE_DEV_BUILD
+ if(next_timestamp < SS_EVENT_DISABLED_TS && (next_timestamp < 0 || next_timestamp >= 0x40000000))
+ {
+  fprintf(stderr, "Event %u, bad next timestamp 0x%08x\n", (unsigned)(e - events), next_timestamp);
+  abort();
+ }
+#endif
+
  if(next_timestamp < e->event_time)
  {
   event_list_entry *fe = e;
@@ -628,16 +588,14 @@ void SS_SetEventNT(event_list_entry* e, const sscpu_timestamp_t next_timestamp)
   e->event_time = next_timestamp;
  }
 
- next_event_ts = (Running ? events[SS_EVENT__SYNFIRST].next->event_time : 0);
+ next_event_ts = ((Running > 0) ? events[SS_EVENT__SYNFIRST].next->event_time : 0);
 }
 
 // Called from debug.cpp too.
 void ForceEventUpdates(const sscpu_timestamp_t timestamp)
 {
- CPU[0].ForceInternalEventUpdates();
-
- if(SMPC_IsSlaveOn())
-  CPU[1].ForceInternalEventUpdates();
+ for(unsigned c = 0; c < 2; c++)
+  CPU[c].ForceInternalEventUpdates();
 
  for(unsigned evnum = SS_EVENT__SYNFIRST + 1; evnum < SS_EVENT__SYNLAST; evnum++)
  {
@@ -645,7 +603,7 @@ void ForceEventUpdates(const sscpu_timestamp_t timestamp)
    SS_SetEventNT(&events[evnum], events[evnum].event_handler(timestamp));
  }
 
- next_event_ts = (Running ? events[SS_EVENT__SYNFIRST].next->event_time : 0);
+ next_event_ts = ((Running > 0) ? events[SS_EVENT__SYNFIRST].next->event_time : 0);
 }
 
 static INLINE bool EventHandler(const sscpu_timestamp_t timestamp)
@@ -671,7 +629,7 @@ static INLINE bool EventHandler(const sscpu_timestamp_t timestamp)
   SS_SetEventNT(e, nt);
  }
 
- return(Running);
+ return Running > 0;
 }
 
 static void CheckEventsByMemTS_Sub(void)
@@ -682,12 +640,17 @@ static void CheckEventsByMemTS_Sub(void)
 static void CheckEventsByMemTS(void)
 {
  if(MDFN_UNLIKELY(SH7095_mem_timestamp >= next_event_ts))
- {
-  //puts("Woot");
   CheckEventsByMemTS_Sub();
- }
 }
 
+void SS_RequestEHLExit(void)
+{
+ if(Running)
+ {
+  Running = -1;
+  next_event_ts = 0;
+ }
+}
 
 void SS_RequestMLExit(void)
 {
@@ -696,52 +659,79 @@ void SS_RequestMLExit(void)
 }
 
 #pragma GCC push_options
-#if !defined(__clang__) && defined(__GNUC__) && __GNUC__ < 5
- // gcc 5.3.0 and 6.1.0 produce some braindead code for the big switch() statement at -Os.
- #pragma GCC optimize("Os,no-unroll-loops,no-peel-loops,no-crossjumping")
-#else
- #pragma GCC optimize("O2,no-unroll-loops,no-peel-loops,no-crossjumping")
-#endif
+#pragma GCC optimize("O2,no-unroll-loops,no-peel-loops,no-crossjumping")
 template<bool EmulateICache, bool DebugMode>
-static int32 NO_INLINE RunLoop(EmulateSpecStruct* espec)
+static INLINE int32 RunLoop_INLINE(EmulateSpecStruct* espec)
 {
  sscpu_timestamp_t eff_ts = 0;
 
- //printf("%d %d\n", SH7095_mem_timestamp, CPU[0].timestamp);
+ for(unsigned c = 0; c < 2; c++)
+  CPU[c].SetDebugMode(DebugMode);
 
+ //printf("%d %d\n", SH7095_mem_timestamp, CPU[0].timestamp);
  do
  {
+  SMPC_ProcessSlaveOffOn();
+  //
+  //
+  Running = true;
+  ForceEventUpdates(eff_ts);
   do
   {
-#ifdef HAVE_DEBUG
-   if(DebugMode)
-    DBG_CPUHandler<0>(eff_ts);
-#endif
-
-   CPU[0].Step<0, EmulateICache, DebugMode>();
-   CPU[0].DMA_BusTimingKludge();
-
-   while(MDFN_LIKELY(CPU[0].timestamp > CPU[1].timestamp))
+   do
    {
-#ifdef HAVE_DEBUG
     if(DebugMode)
-     DBG_CPUHandler<1>(eff_ts);
-#endif
+    {
+     DBG_SetEffTS(eff_ts);
+     DBG_CPUHandler<0>();
+    }
 
-    CPU[1].Step<1, EmulateICache, DebugMode>();
-   }
+    CPU[0].Step<0, EmulateICache, DebugMode>();
+    CPU[0].DMA_BusTimingKludge();
 
-   eff_ts = CPU[0].timestamp;
-   if(SH7095_mem_timestamp > eff_ts)
-    eff_ts = SH7095_mem_timestamp;
-   else
-    SH7095_mem_timestamp = eff_ts;
-  } while(MDFN_LIKELY(eff_ts < next_event_ts));
- } while(MDFN_LIKELY(EventHandler(eff_ts)));
+    if(EmulateICache)
+    {
+     if(DebugMode)
+      CPU[1].RunSlaveUntil_Debug(CPU[0].timestamp);
+     else
+      CPU[1].RunSlaveUntil(CPU[0].timestamp);
+    }
+    else
+    {
+     while(MDFN_LIKELY(CPU[0].timestamp > CPU[1].timestamp))
+     {
+      if(DebugMode)
+       DBG_CPUHandler<1>();
+
+      CPU[1].Step<1, false, DebugMode>();
+     }
+    }
+
+    eff_ts = CPU[0].timestamp;
+    if(SH7095_mem_timestamp > eff_ts)
+     eff_ts = SH7095_mem_timestamp;
+    else
+     SH7095_mem_timestamp = eff_ts;
+   } while(MDFN_LIKELY(eff_ts < next_event_ts));
+  } while(MDFN_LIKELY(EventHandler(eff_ts)));
+ } while(MDFN_LIKELY(Running != 0));
 
  //printf(" End: %d %d -- %d\n", SH7095_mem_timestamp, CPU[0].timestamp, eff_ts);
  return eff_ts;
 }
+
+template<bool EmulateICache>
+static NO_INLINE MDFN_HOT int32 RunLoop(EmulateSpecStruct* espec)
+{
+ return RunLoop_INLINE<EmulateICache, false>(espec);
+}
+
+template<bool EmulateICache>
+static NO_INLINE MDFN_COLD int32 RunLoop_Debug(EmulateSpecStruct* espec)
+{
+ return RunLoop_INLINE<EmulateICache, true>(espec);
+}
+
 #pragma GCC pop_options
 
 // Must not be called within an event or read/write handler.
@@ -835,22 +825,20 @@ void Emulate(EmulateSpecStruct* espec_arg)
  //
  //
  //
- Running = true;  // Set before ForceEventUpdates()
- ForceEventUpdates(0);
-
 #ifdef WANT_DEBUGGER
- #define RLTDAT true
+ #define RLTDAT(eic) RunLoop_Debug<eic>
 #else
- #define RLTDAT false
+ #define RLTDAT(eic) RunLoop<eic>
 #endif
  static int32 (*const rltab[2][2])(EmulateSpecStruct*) =
  {
-  //     DebugMode=false        DebugMode=true
-  { RunLoop<false, false>, RunLoop<false, RLTDAT> },  // EmulateICache=false
-  { RunLoop<true,  false>, RunLoop<true,  RLTDAT> },  // EmulateICache=true
+  //DebugMode=false  DebugMode=true
+  { RunLoop<false>, RLTDAT(false) },	// EmulateICache=false
+  { RunLoop<true>,  RLTDAT(true)  },	// EmulateICache=true
  };
 #undef RLTDAT
  end_ts = rltab[NeedEmuICache][DBG_NeedCPUHooks()](espec);
+ assert(end_ts >= 0);
 
  ForceEventUpdates(end_ts);
  //
@@ -861,7 +849,7 @@ void Emulate(EmulateSpecStruct* espec_arg)
  RebaseTS(end_ts);
 
  CDB_ResetTS();
- SOUND_ResetTS();
+ SOUND_AdjustTS(-end_ts);
  VDP1::AdjustTS(-end_ts);
  VDP2::AdjustTS(-end_ts);
  SMPC_ResetTS();
@@ -869,14 +857,13 @@ void Emulate(EmulateSpecStruct* espec_arg)
  CART_AdjustTS(-end_ts);
 
  UpdateInputLastBigTS -= (int64)end_ts * cur_clock_div * 1000 * 1000;
+ //
+ SH7095_mem_timestamp -= end_ts; // Update before CPU[n].AdjustTS()
+ //
+ for(unsigned c = 0; c < 2; c++)
+  CPU[c].AdjustTS(-end_ts);
 
- if(!(SH7095_mem_timestamp & 0x40000000)) // or maybe >= 0 instead?
-  SH7095_mem_timestamp -= end_ts;
-
- CPU[0].AdjustTS(-end_ts);
-
- if(SMPC_IsSlaveOn())
-  CPU[1].AdjustTS(-end_ts);
+ //printf("B=% 7d M=% 7d S=% 7d\n", SH7095_mem_timestamp, CPU[0].timestamp, CPU[1].timestamp);
  //
  //
  //
@@ -1034,7 +1021,7 @@ bool MDFN_COLD InitCommon(const unsigned cpucache_emumode, const unsigned horrib
    NeedEmuICache = (cpucache_emumode == CPUCACHE_EMUMODE_FULL);
    for(i = 0; i < 2; i++)
    {
-      CPU[i].Init(cpucache_emumode == CPUCACHE_EMUMODE_DATA_CB);
+      CPU[i].Init((cpucache_emumode == CPUCACHE_EMUMODE_FULL), (cpucache_emumode == CPUCACHE_EMUMODE_DATA_CB));
       CPU[i].SetMD5((bool)i);
    }
  SH7095_mem_timestamp = 0;
@@ -1327,7 +1314,7 @@ struct EventsPacker
  enum : size_t { eventcopy_first = SS_EVENT__SYNFIRST + 1 };
  enum : size_t { eventcopy_bound = SS_EVENT__SYNLAST };
 
- bool Restore(void);
+ bool Restore(const unsigned state_version);
  void Save(void);
 
  int32 event_times[eventcopy_bound - eventcopy_first];
@@ -1347,7 +1334,7 @@ INLINE void EventsPacker::Save(void)
  }
 }
 
-INLINE bool EventsPacker::Restore(void)
+INLINE bool EventsPacker::Restore(const unsigned state_version)
 {
  bool used[SS_EVENT__COUNT] = { 0 };
  event_list_entry* evt = &events[SS_EVENT__SYNFIRST];
@@ -1355,6 +1342,11 @@ INLINE bool EventsPacker::Restore(void)
  {
   int32 et = event_times[i - eventcopy_first];
   uint8 eo = event_order[i - eventcopy_first];
+
+  if(state_version < 0x00102600 && et >= 0x40000000)
+  {
+   et = SS_EVENT_DISABLED_TS;
+  }
 
   if(eo < eventcopy_first || eo >= eventcopy_bound)
    return false;
@@ -1495,19 +1487,15 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
    {
       BackupRAM_Dirty = true;
 
-      if ( !ep.Restore() )
+      if ( !ep.Restore(load) )
       {
          log_cb( RETRO_LOG_WARN, "Bad state events data.\n" );
          InitEvents();
-	  }
+      }
 
-	  if(NeedEmuICache && !RecordedNeedEmuICache)
-	  {
-	   //printf("NeedEmuICache=%d, RecordedNeedEmuICache=%d\n", NeedEmuICache, RecordedNeedEmuICache);
-
-	   for(size_t i = 0; i < 2; i++)
-		CPU[i].FixupICacheModeState();	// Only call it after all RAM has been loaded from the save state.
-	  }
+         
+      CPU[0].PostStateLoad(load, RecordedNeedEmuICache, NeedEmuICache);
+      CPU[1].PostStateLoad(load, RecordedNeedEmuICache, NeedEmuICache);
    }
 
    // Success!

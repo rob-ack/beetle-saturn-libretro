@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* smpc.cpp - SMPC Emulation
-**  Copyright (C) 2015-2017 Mednafen Team
+**  Copyright (C) 2015-2020 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -47,9 +47,9 @@
 #include "input/keyboard.h"
 #include "input/jpkeyboard.h"
 
-#include <time.h>
 #include "input/multitap.h"
 
+#include "debug.inc"
 #include "sh7095.h"
 
 enum
@@ -150,6 +150,7 @@ static uint32 SMPC_ClockRatio;
 
 static bool SoundCPUOn;
 static bool SlaveSH2On;
+static int SlaveSH2Pending;
 static bool CDOn;
 
 static uint8 BusBuffer;
@@ -263,7 +264,6 @@ static void MapPorts(void)
    for(unsigned i = 0; i < 6; i++)
    {
     IODevice* const tsd = VirtualPorts[vp++];
-    if (!tsd) continue; // libretro fix - patch for multi-tap set on startup.
 
     if(SPorts[sp]->GetSubDevice(i) != tsd)
      tsd->Power();
@@ -407,6 +407,8 @@ void SMPC_Init(const uint8 area_code_arg, const int32 master_clock_arg)
  MasterClock = master_clock_arg;
  SMPC_ClockRatio = 0;
 
+ SlaveSH2Pending = false;
+
  ResetButtonPhysStatus = false;
  ResetPending = false;
  vb = false;
@@ -414,10 +416,7 @@ void SMPC_Init(const uint8 area_code_arg, const int32 master_clock_arg)
  lastts = 0;
 
  for(unsigned sp = 0; sp < 2; sp++)
- {
   SPorts[sp] = nullptr;
-  IOPorts[sp] = nullptr; /* beetle/libretro: added to fix crash when two multi-taps are used */
- }
 
  for(unsigned i = 0; i < 12; i++)
  {
@@ -426,27 +425,6 @@ void SMPC_Init(const uint8 area_code_arg, const int32 master_clock_arg)
  }
 
  SMPC_SetRTC(NULL, 0);
-}
-
-bool SMPC_IsSlaveOn(void)
-{
- return SlaveSH2On;
-}
-
-static void SlaveOn(void)
-{
- SlaveSH2On = true;
- CPU[1].AdjustTS(SH7095_mem_timestamp, true);
- CPU[1].Reset(true);
- SS_SetEventNT(&events[SS_EVENT_SH2_S_DMA], SH7095_mem_timestamp + 1);
-}
-
-static void SlaveOff(void)
-{
- SlaveSH2On = false;
- CPU[1].Reset(true);
- CPU[1].AdjustTS(0x7FFFFFFF, true);
- SS_SetEventNT(&events[SS_EVENT_SH2_S_DMA], SS_EVENT_DISABLED_TS);
 }
 
 static void TurnSoundCPUOn(void)
@@ -465,7 +443,10 @@ static void TurnSoundCPUOff(void)
 
 void SMPC_Reset(bool powering_up)
 {
- SlaveOff();
+ SlaveSH2Pending = 0;
+ SlaveSH2On = false;
+ CPU[1].SetActive(SlaveSH2On);
+ //
  TurnSoundCPUOff();
  CDOn = true; // ? false;
 
@@ -547,6 +528,7 @@ void SMPC_StateAction(StateMem* sm, const unsigned load, const bool data_only)
 
   SFVAR(SoundCPUOn),
   SFVAR(SlaveSH2On),
+  SFVAR(SlaveSH2Pending),
   SFVAR(CDOn),
 
   SFVAR(BusBuffer),
@@ -608,6 +590,16 @@ void SMPC_StateAction(StateMem* sm, const unsigned load, const bool data_only)
  {
   JRS.CurPort &= 0x1;
   JRS.OWP &= 0x3F;
+
+  for(unsigned vp = 0; vp < 12; vp++)
+  {
+   IODevice* const p = VirtualPorts[vp];
+
+   if(load < 0x00102600 && p->NextEventTS >= 0x40000000)
+    p->NextEventTS = SS_EVENT_DISABLED_TS;
+   else
+    p->NextEventTS = std::max<sscpu_timestamp_t>(0, p->NextEventTS);
+  }
  }
 }
 
@@ -621,6 +613,18 @@ void SMPC_TransformInput(void)
   VirtualPorts[vp]->TransformInput(VirtualPortsDPtr[vp], gun_x_scale, gun_x_offs);
 }
 
+void SMPC_ProcessSlaveOffOn(void)
+{
+ if(SlaveSH2Pending)
+ {
+  SlaveSH2On = (SlaveSH2Pending > 0);
+  CPU[1].SetActive(SlaveSH2On);
+  SlaveSH2Pending = 0;
+  //
+  SS_DBGTI(SS_DBG_SMPC, "[SMPC]  Slave pending processed; SlaveSH2On=%d", SlaveSH2On);
+ }
+}
+
 int32 SMPC_StartFrame(EmulateSpecStruct* espec)
 {
  if(ResetPending)
@@ -631,9 +635,6 @@ int32 SMPC_StartFrame(EmulateSpecStruct* espec)
   CurrentClockDivisor = PendingClockDivisor;
   PendingClockDivisor = 0;
  }
-
- if(!SlaveSH2On)
-  CPU[1].AdjustTS(0x7FFFFFFF, true);
 
  SMPC_ClockRatio = (1ULL << 32) * 4000000 * CurrentClockDivisor / MasterClock;
  SOUND_SetClockRatio((1ULL << 32) * 11289600 * CurrentClockDivisor / MasterClock);
@@ -673,15 +674,14 @@ void SMPC_UpdateOutput(void)
 
 void SMPC_UpdateInput(const int32 time_elapsed)
 {
-   //printf("%8d\n", time_elapsed);
-   if (MiscInputPtr)
-      ResetButtonPhysStatus = (bool)(*MiscInputPtr & 0x1);
-
-   for(unsigned vp = 0; vp < 12; vp++)
-   {
-      if (VirtualPorts[vp])
-         VirtualPorts[vp]->UpdateInput(VirtualPortsDPtr[vp], time_elapsed);
-   }
+ //printf("%8d\n", time_elapsed);
+ if (MiscInputPtr)
+  ResetButtonPhysStatus = (bool)(*MiscInputPtr & 0x1);
+ for(unsigned vp = 0; vp < 12; vp++)
+ {
+  if (VirtualPorts[vp])
+    VirtualPorts[vp]->UpdateInput(VirtualPortsDPtr[vp], time_elapsed);
+ }
 }
 
 
@@ -706,34 +706,33 @@ void SMPC_Write(const sscpu_timestamp_t timestamp, uint8 A, uint8 V)
   case 0x04:
   case 0x05:
   case 0x06:
-#ifdef HAVE_DEBUG
 	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
 	{
 	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Input register %u port written with 0x%02x while command 0x%02x is executing.", A, V, ExecutingCommand);
 	}
-#endif
 
 	IREG[A] = V;
 	break;
 
   case 0x0F:
-#ifdef HAVE_DEBUG
 	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
 	{
 	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Command port written with 0x%02x while command 0x%02x is still executing.", V, ExecutingCommand);
 	}
-#endif
+
+	if(MDFN_UNLIKELY(PendingCommand >= 0))
+	{
+	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Command port written with 0x%02x while command 0x%02x is still pending.", V, PendingCommand);
+	}
 
 	PendingCommand = V;
 	break;
 
   case 0x31:
-#ifdef HAVE_DEBUG
 	if(MDFN_UNLIKELY(SF))
 	{
 	 SS_DBGTI(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] SF port written while SF is 1.");
 	}
-#endif
 
 	SF = true;
 	break;
@@ -803,27 +802,23 @@ uint8 SMPC_Read(const sscpu_timestamp_t timestamp, uint8 A)
 	SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Unknown read from 0x%02x\n", A);
 	break;
 
-    case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
+  case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
   case 0x18: case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E: case 0x1F:
   case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27:
   case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
-#ifdef HAVE_DEBUG
 	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
- 	{
+	{
 	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] Output register %u port read while command 0x%02x is executing.\n", A - 0x10, ExecutingCommand);
- 	}
-#endif
+	}
 
 	ret = OREG[(size_t)A - 0x10];
 	break;
 
   case 0x30:
-#ifdef HAVE_DEBUG
 	if(MDFN_UNLIKELY(ExecutingCommand >= 0))
 	{
 	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SMPC, "[SMPC] SR port read while command 0x%02x is executing.\n", ExecutingCommand);
 	}
-#endif
 
 	ret = SR;
 	break;
@@ -853,6 +848,17 @@ void SMPC_ResetTS(void)
 
  lastts = 0;
 }
+
+#define SMPC_WAIT_UNTIL_COND_SHORT(cond)  {				\
+			    case __COUNTER__:				\
+			    ClockCounter = 0; /* before if(), not after, otherwise the variable will overflow eventually. */	\
+			    if(!(cond))					\
+			    {						\
+			     SubPhase = __COUNTER__ - SubPhaseBias - 1;	\
+			     next_event_ts = timestamp + 8;		\
+			     goto Breakout;				\
+			    }						\
+			   }
 
 #define SMPC_WAIT_UNTIL_COND(cond)  {					\
 			    case __COUNTER__:				\
@@ -1070,16 +1076,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
     {
 
     }
-    else if(ExecutingCommand == CMD_SSHON)
-    {
-     if(!SlaveSH2On)
-      SlaveOn();
-    }
-    else if(ExecutingCommand == CMD_SSHOFF)
-    {
-     if(SlaveSH2On)
-      SlaveOff();
-    }
     else if(ExecutingCommand == CMD_SNDON)
     {
      if(!SoundCPUOn)
@@ -1102,7 +1098,6 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
     {
      ResetPending = true;
      SMPC_WAIT_UNTIL_COND(!ResetPending);
-
      // TODO/FIXME(unreachable currently?):
     }
     else if(ExecutingCommand == CMD_CKCHG352 || ExecutingCommand == CMD_CKCHG320)
@@ -1110,7 +1105,10 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
      // Devour some time
 
      if(SlaveSH2On)
-      SlaveOff();
+     {
+      SlaveSH2Pending = -1;
+      SS_RequestEHLExit();
+     }
  
      if(SoundCPUOn)
       TurnSoundCPUOff();
@@ -1219,7 +1217,14 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
 	 UpdateIOBus(JRS.CurPort, timestamp);									\
 	}
 
-      JR_WAIT(!vb);
+      JR_WAIT(!vb || (IREG[0] & 0x40));
+
+      if(IREG[0] & 0x40)
+      {
+       SS_DBGTI(SS_DBG_SMPC, "[SMPC] Break (early)");
+       goto AbortJR;
+      }
+
       JRS.NextContBit = true;
       if(SR & SR_NPE)
       {
@@ -1470,6 +1475,26 @@ sscpu_timestamp_t SMPC_Update(sscpu_timestamp_t timestamp)
     {
      ResetNMIEnable = false;
     }
+    else if(ExecutingCommand == CMD_SSHON)
+    {
+     if(!SlaveSH2On)
+     {
+      SlaveSH2Pending = 1;
+      SS_RequestEHLExit();
+      SMPC_WAIT_UNTIL_COND_SHORT(!SlaveSH2Pending);
+      SS_DBGTI(SS_DBG_SMPC, "[SMPC]  SlaveSH2Pending wait loop end.");
+     }
+    }
+    else if(ExecutingCommand == CMD_SSHOFF)
+    {
+     if(SlaveSH2On)
+     {
+      SlaveSH2Pending = -1;
+      SS_RequestEHLExit();
+      SMPC_WAIT_UNTIL_COND_SHORT(!SlaveSH2Pending);
+      SS_DBGTI(SS_DBG_SMPC, "[SMPC]  SlaveSH2Pending wait loop end.");
+     }
+    }
    }
 
    ExecutingCommand = -1;
@@ -1625,5 +1650,3 @@ const std::vector<InputPortInfoStruct> SMPC_PortInfo =
 
  { "builtin", "Builtin", InputDeviceInfoBuiltin, "builtin" },
 };
-
-

@@ -285,7 +285,71 @@ void disc_init( retro_environment_t environ_cb )
 	environ_cb( RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_interface );
 }
 
-static void CalcGameID( uint8* id_out16, uint8* fd_id_out16, char* sgid )
+static INLINE bool MDFN_isspace(const char c) { return c == ' ' || c == '\f' || c == '\r' || c == '\n' || c == '\t' || c == '\v'; }
+
+// Remove whitespace from beginning of s
+static void MDFN_ltrim(char* s)
+{
+ const char* si = s;
+ char* di = s;
+ bool InWhitespace = true;
+
+ while(*si)
+ {
+  if(!InWhitespace || !MDFN_isspace(*si))
+  {
+   InWhitespace = false;
+   *di = *si;
+   di++;
+  }
+  si++;
+ }
+
+ *di = 0;
+}
+
+// Remove whitespace from end of s
+static void MDFN_rtrim(char* s)
+{
+ const size_t len = strlen(s);
+
+ if(!len)
+  return;
+ //
+ size_t x = len;
+
+ do
+ {
+  x--;
+
+  if(!MDFN_isspace(s[x]))
+   break;
+ 
+  s[x] = 0;
+ } while(x);
+}
+
+static void MDFN_trim(char* s)
+{
+ MDFN_rtrim(s);
+ MDFN_ltrim(s);
+}
+
+static void MDFN_zapctrlchars(char* s)
+{
+ if(!s)
+  return;
+
+ while(*s)
+ {
+  if((unsigned char)*s < 0x20)
+   *s = ' ';
+
+  s++;
+ }
+}
+
+static void CalcGameID( uint8* id_out16, uint8* fd_id_out16, char* sgid, char* sgname, char* sgarea )
 {
 	md5_context mctx;
 	uint8_t buf[2048];
@@ -330,6 +394,15 @@ static void CalcGameID( uint8* id_out16, uint8* fd_id_out16, char* sgid )
 						{
 						*tmp = 0;
 						} while(tmp-- != sgid && (signed char)*tmp <= 0x20);
+						memcpy(sgname, &buf[0x60], 0x70);
+						sgname[0x70] = 0;
+						MDFN_zapctrlchars(sgname);
+						MDFN_trim(sgname);
+
+						memcpy(sgarea, &buf[0x40], 0x10);
+						sgarea[0x10] = 0;
+						MDFN_zapctrlchars(sgarea);
+						MDFN_trim(sgarea);
 					}
 				}
 
@@ -496,7 +569,7 @@ void disc_select( unsigned disc_num )
 	}
 }
 
-bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid )
+bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid, char* sgname, char* sgarea )
 {
 	disc_cleanup();
 
@@ -584,7 +657,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 
 	memcpy( game_interface->MD5, LayoutMD5, 16 );
 
-	CalcGameID( game_interface->MD5, fd_id, sgid );
+	CalcGameID( game_interface->MD5, fd_id, sgid, sgname, sgarea );
 
 	return true;
 }

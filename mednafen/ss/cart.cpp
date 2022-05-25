@@ -20,8 +20,8 @@
 */
 
 #include "ss.h"
-#include <mednafen/mednafen.h>
-#include <mednafen/general.h>
+#include "../mednafen.h"
+#include "../general.h"
 #include <streams/file_stream.h>
 #include "../mednafen-endian.h"
 
@@ -33,6 +33,7 @@
 //#include "cart/nlmodem.h"
 #include "cart/rom.h"
 #include "cart/ar4mp.h"
+#include "debug.inc"
 
 
 CartInfo Cart;

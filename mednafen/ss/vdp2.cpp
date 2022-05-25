@@ -37,6 +37,7 @@
 #include "vdp2_common.h"
 #include "vdp2_render.h"
 #include "sh7095.h"
+#include "debug.inc"
 
 namespace VDP2
 {

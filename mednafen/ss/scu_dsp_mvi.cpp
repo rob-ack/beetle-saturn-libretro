@@ -21,6 +21,7 @@
 
 #include "ss.h"
 #include "scu.h"
+#include "debug.inc"
 
 #pragma GCC optimize("Os")
 

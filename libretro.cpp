@@ -31,7 +31,7 @@
 
 
 #define MEDNAFEN_CORE_NAME                   "Beetle Saturn"
-#define MEDNAFEN_CORE_VERSION                "v1.25.0-UNSTABLE"
+#define MEDNAFEN_CORE_VERSION                "v1.26.0-UNSTABLE"
 #define MEDNAFEN_CORE_VERSION_NUMERIC        0x00102403
 #define MEDNAFEN_CORE_EXTENSIONS             "cue|ccd|chd|toc|m3u"
 #define MEDNAFEN_CORE_TIMING_FPS             59.82
@@ -460,9 +460,11 @@ static bool MDFNI_LoadGame( const char *name )
           (!strcasecmp( ext, ".m3u" )) )
       {
          uint8 fd_id[16];
-         char sgid[16 + 1] = { 0 };
+         char sgid[16 + 1]     = { 0 };
+         char sgname[0x70 + 1] = { 0 };
+         char sgarea[0x10 + 1] = { 0 };
 
-         if ( disc_load_content( MDFNGameInfo, name, fd_id, sgid ) )
+         if ( disc_load_content( MDFNGameInfo, name, fd_id, sgid, sgname, sgarea ) )
          {
             log_cb(RETRO_LOG_INFO, "Game ID is: %s\n", sgid );
 
@@ -475,7 +477,7 @@ static bool MDFNI_LoadGame( const char *name )
             {
                DetectRegion( &region );
 
-               DB_Lookup(nullptr, sgid, fd_id, &region, &cart_type, &cpucache_emumode );
+               DB_Lookup(nullptr, sgid, sgname, sgarea, fd_id, &region, &cart_type, &cpucache_emumode );
                horrible_hacks = DB_LookupHH(sgid, fd_id);
 
                // forced region setting?
