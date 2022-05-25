@@ -68,11 +68,7 @@
   SS_DBG_SCSP_REGW = (1U << 27),
   SS_DBG_SCSP_MOBUF= (1U << 28),
  };
-#ifdef MDFN_ENABLE_DEV_BUILD
- MDFN_HIDE extern uint32 ss_dbg_mask;
-#else
  enum { ss_dbg_mask = 0 };
-#endif
 
 #if 1
  enum

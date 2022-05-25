@@ -969,20 +969,6 @@ static int FLS_CheckSanity(void)
  return true;
 }
 
-static INLINE void FLS_DevBuildAssertSanity(void)
-{
-#ifdef MDFN_ENABLE_DEV_BUILD
- int s = FLS_CheckSanity();
-
- if(s != 1)
- {
-  fprintf(stderr, "FLS_CheckSanity() failed: %d\n", s);
-  abort();
- }
-#endif
-}
-
-
 enum : int { FLSPhaseBias = __COUNTER__ + 1 };
 
 #define FLS_PROLOGUE	 switch(FLS.Phase + FLSPhaseBias) { for(;;) {
@@ -1061,8 +1047,6 @@ static bool FLS_Run(void)
 {
  bool ret = false;
  //printf("%d, %d\n", Partitions[FLS.pnum].Count, FreeBufferCount);
-
- FLS_DevBuildAssertSanity();
 
  if(FLS.Abort)
  {
@@ -1249,8 +1233,6 @@ static bool FLS_Run(void)
  }
  FLS_EPILOGUE;
 
- FLS_DevBuildAssertSanity();
-
  return ret;
 }
 
@@ -1309,19 +1291,6 @@ static int DT_CheckSanity(void)
  }
 
  return true;
-}
-
-static INLINE void DT_DevBuildAssertSanity(void)
-{
-#ifdef MDFN_ENABLE_DEV_BUILD
- int s = DT_CheckSanity();
-
- if(s != 1)
- {
-  fprintf(stderr, "DT_CheckSanity() failed: %d\n", s);
-  abort();
- }
-#endif
 }
 
 //
@@ -2576,7 +2545,6 @@ sscpu_timestamp_t CDB_Update(sscpu_timestamp_t timestamp)
      }
     }
     //
-    DT_DevBuildAssertSanity();
     //
     for(unsigned i = 0; i < 4; i++)
      CTR.CD[i] = CData[i];
@@ -4115,7 +4083,6 @@ uint16 CDB_Read(uint32 offset)
 	 DT.FIFO_RP = (DT.FIFO_RP + 1) % (sizeof(DT.FIFO) / sizeof(DT.FIFO[0]));
 	 DT.FIFO_In -= (bool)DT.FIFO_In;
 	 //
-	 DT_DevBuildAssertSanity();
 	}
 	break;
 
@@ -4181,7 +4148,6 @@ void CDB_Write_DBM(uint32 offset, uint16 DB, uint16 mask)
 	  }
 	 }
 	 //
-	 DT_DevBuildAssertSanity();
 	}
 	break;
 

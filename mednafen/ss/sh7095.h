@@ -610,20 +610,7 @@ class SH7095 final
  bool EIC_Setting;
  bool DM_Setting;
  uint32 PC_IF, PC_ID;	// Debug-related variables.
-#ifdef MDFN_ENABLE_DEV_BUILD
- void CheckDMARace(uint32 addr, uint32 size, bool write);
- struct
- {
-  uint32 rw[2][2];
- } DMADebug[2];
-#endif
  const char* const cpu_name;
  const void*const* ResumeTableP[2];
-
- template<typename T>
- void DevBuild_ReadLog(uint32 A);
-
- template<typename T>
- void DevBuild_WriteLog(uint32 A, T V);
 };
 #endif

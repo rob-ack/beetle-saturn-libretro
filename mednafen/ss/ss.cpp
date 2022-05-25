@@ -67,34 +67,6 @@ extern char retro_base_directory[4096];
 
 static sscpu_timestamp_t MidSync(const sscpu_timestamp_t timestamp);
 
-#ifdef MDFN_ENABLE_DEV_BUILD
-uint32 ss_dbg_mask;
-static std::bitset<0x200> BWMIgnoreAddr[2]; // 0=read, 1=write
-
-void SS_DBG(uint32 which, const char* format, ...)
-{
- if(MDFN_LIKELY(!(ss_dbg_mask & which)))
-  return;
- //
- va_list ap;
- va_start(ap, format);
- trio_vprintf(format, ap);
- va_end(ap);
-}
-
-void SS_DBGTI(uint32 which, const char* format, ...)
-{
- if(MDFN_LIKELY(!(ss_dbg_mask & which)))
-  return;
- //
- va_list ap;
- va_start(ap, format);
- trio_vprintf(format, ap);
- va_end(ap);
- //
- trio_printf(" @Line=0x%03x, HPos=0x%03x, memts=%d\n", VDP2::PeekLine(), VDP2::PeekHPos(), SH7095_mem_timestamp);
-}
-#endif
 uint32 ss_horrible_hacks;
 
 static bool NeedEmuICache;
@@ -530,14 +502,6 @@ static void RebaseTS(const sscpu_timestamp_t timestamp)
 
 void SS_SetEventNT(event_list_entry* e, const sscpu_timestamp_t next_timestamp)
 {
-#ifdef MDFN_ENABLE_DEV_BUILD
- if(next_timestamp < SS_EVENT_DISABLED_TS && (next_timestamp < 0 || next_timestamp >= 0x40000000))
- {
-  fprintf(stderr, "Event %u, bad next timestamp 0x%08x\n", (unsigned)(e - events), next_timestamp);
-  abort();
- }
-#endif
-
  if(next_timestamp < e->event_time)
  {
   event_list_entry *fe = e;
@@ -587,17 +551,6 @@ void SS_SetEventNT(event_list_entry* e, const sscpu_timestamp_t next_timestamp)
 // Called from debug.cpp too.
 void ForceEventUpdates(const sscpu_timestamp_t timestamp)
 {
-#ifdef MDFN_ENABLE_DEV_BUILD
- for(unsigned i = SS_EVENT__SYNFIRST + 1; i < SS_EVENT__SYNLAST; i++)
- {
-  if(events[i].event_time > events[i].next->event_time)
-  {
-   printf("%u=%u, %u=%u\n", i, events[i].event_time, (unsigned)(events[i].next - events), events[i].next->event_time);
-   abort();
-  }
- }
-#endif
-
  for(unsigned c = 0; c < 2; c++)
   CPU[c].ForceInternalEventUpdates();
 
@@ -616,19 +569,8 @@ static INLINE bool EventHandler(const sscpu_timestamp_t timestamp)
 
  while(timestamp >= (e = events[SS_EVENT__SYNFIRST].next)->event_time)  // If Running = 0, EventHandler() may be called even if there isn't an event per-se, so while() instead of do { ... } while
  {
-#ifdef MDFN_ENABLE_DEV_BUILD
-  const sscpu_timestamp_t etime = e->event_time;
-#endif
   sscpu_timestamp_t nt;
   nt = e->event_handler(e->event_time);
-
-#ifdef MDFN_ENABLE_DEV_BUILD
-  if(MDFN_UNLIKELY(nt <= etime))
-  {
-   fprintf(stderr, "which=%d event_time=%d nt=%d timestamp=%d\n", (int)(e - events), etime, nt, timestamp);
-   assert(nt > etime);
-  }
-#endif
 
   SS_SetEventNT(e, nt);
  }
@@ -950,15 +892,6 @@ typedef struct
 
 bool MDFN_COLD InitCommon(const unsigned cpucache_emumode, const unsigned horrible_hacks, const unsigned cart_type, const unsigned smpc_area)
 {
-#ifdef MDFN_ENABLE_DEV_BUILD
- ss_dbg_mask = SS_DBG_ERROR;
- {
-  std::vector<uint64> dms = MDFN_GetSettingMultiUI("ss.dbg_mask");
-
-  for(uint64 dmse : dms)
-   ss_dbg_mask |= dmse;
- }
-#endif
  //
 
    unsigned i;
@@ -1175,10 +1108,6 @@ bool MDFN_COLD InitCommon(const unsigned cpucache_emumode, const unsigned horrib
 
 MDFN_COLD void CloseGame(void)
 {
-#ifdef MDFN_ENABLE_DEV_BUILD
- VDP1::MakeDump("/tmp/vdp1_dump.h");
- VDP2::MakeDump("/tmp/vdp2_dump.h");
-#endif
  //
  //
 
@@ -1576,11 +1505,6 @@ static MDFNSetting SSSettings[] =
 
  { "ss.slstartp", MDFNSF_NOFLAGS, "First displayed scanline in PAL mode.", NULL, MDFNST_INT, "0", "-16", "271" },
  { "ss.slendp", MDFNSF_NOFLAGS, "Last displayed scanline in PAL mode.", NULL, MDFNST_INT, "255", "-16", "271" },
-
-#ifdef MDFN_ENABLE_DEV_BUILD
- { "ss.dbg_mask", MDFNSF_NOFLAGS, "Debug printf mask.", NULL, MDFNST_UINT, "0x00001", "0x00000", "0xFFFFF" },
- { "ss.dbg_exe_cdpath", MDFNSF_SUPPRESS_DOC, "CD image to use with homebrew executable loading.", NULL, MDFNST_STRING, "" },
-#endif
 
  { NULL },
 };

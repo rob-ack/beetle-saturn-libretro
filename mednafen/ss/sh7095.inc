@@ -657,9 +657,6 @@ INLINE void SH7095::DMA_DoTransfer(unsigned ch)
 
 sscpu_timestamp_t SH7095::DMA_Update(sscpu_timestamp_t et)
 {
-#ifdef MDFN_ENABLE_DEV_BUILD
- assert(timestamp != SS_EVENT_DISABLED_TS);
-#endif
 
  if(MDFN_UNLIKELY(et < DMA_Timestamp))
  {
@@ -724,47 +721,6 @@ sscpu_timestamp_t SH7095::DMA_Update(sscpu_timestamp_t et)
  return et + ((et < DMA_SGEndTimestamp) ? 32 : 128);
 }
 
-
-#ifdef MDFN_ENABLE_DEV_BUILD
-void SH7095::CheckDMARace(uint32 addr, uint32 size, bool write)
-{
- for(unsigned cpu = 0; cpu < 2; cpu++)
- {
-  for(unsigned ch = 0; ch < 2; ch++)
-  {
-   auto& dd = CPU[cpu].DMADebug[ch];
-
-   if(dd.rw[0][0] == ~0U)
-    continue;
-
-   for(uint32 A = addr; A != ((addr + size) & 0x07FFFFFF); A = (A + 1) & 0x07FFFFFF)
-   {
-    bool match = false;
-
-    if(dd.rw[1][1] < dd.rw[1][0])
-     match |= (A >= dd.rw[1][0] || A < dd.rw[1][1]);
-    else
-     match |= (A >= dd.rw[1][0] && A < dd.rw[1][1]);
-
-    if(write)
-    {
-     if(dd.rw[0][1] < dd.rw[0][0])
-      match |= (A >= dd.rw[0][0] || A < dd.rw[0][1]);
-     else
-      match |= (A >= dd.rw[0][0] && A < dd.rw[0][1]);
-    }
-
-    if(match)
-    {
-     SS_DBG(SS_DBG_SH2_DMARACE, "[%s] %u-byte %s 0x%07x races with %s DMA%u; SAR=0x%08x DAR=0x%08x, [0x%07x,0x%07x]->[0x%07x,0x%07x]\n", cpu_name, size, write ? "write to" : "read from", addr, CPU[cpu].cpu_name, ch, CPU[cpu].DMACH[ch].SAR, CPU[cpu].DMACH[ch].DAR, dd.rw[0][0], dd.rw[0][1] - 1, dd.rw[1][0], dd.rw[1][1] - 1);
-     break;
-    }
-   }
-  }
- }
-}
-#endif
-
 // DMA_StartSG() must be paired with a DMA_Update(SH7095_mem_timestamp) somewhere before.
 void SH7095::DMA_StartSG(void)
 {
@@ -799,63 +755,6 @@ NO_INLINE void SH7095::DMA_RecalcRunning(void)
  //
  //
  //
-#ifdef MDFN_ENABLE_DEV_BUILD
- for(unsigned ch = 0; ch < 2; ch++)
- {
-  const bool run_cond = DMA_RunCond(ch);
-  const unsigned ts = (DMACH[ch].CHCR >> 10) & 3;
-  const unsigned sm = (DMACH[ch].CHCR >> 12) & 3;
-  const unsigned dm = (DMACH[ch].CHCR >> 14) & 3;
-  const uint32 sar = DMACH[ch].SAR;
-  const uint32 dar = DMACH[ch].DAR;
-  const uint32 count = DMACH[ch].TCR ? DMACH[ch].TCR : 0x1000000;
-
-  if(run_cond && DMADebug[ch].rw[0][0] == ~0U)
-  {
-   auto& dd = DMADebug[ch];
-
-   if(ts == 3)
-   {
-    dd.rw[0][0] = sar & 0x07FFFFFF;
-    dd.rw[0][1] = (dd.rw[0][0] + (count << 2)) & 0x07FFFFFF;
-   }
-   else
-   {
-    if(sm & 2)
-    {
-     dd.rw[0][1] = (sar + (1 << ts)) & 0x07FFFFFF;
-     dd.rw[0][0] = (dd.rw[0][1] - (count << ts)) & 0x07FFFFFF;
-    }
-    else
-    {
-     dd.rw[0][0] = sar & 0x07FFFFFF;
-     dd.rw[0][1] = (dd.rw[0][0] + ((sm ? count : 1) << ts)) & 0x07FFFFFF;
-    }
-   }
-   //
-   const unsigned ts_adj = std::min<unsigned>(2, ts);
-
-   if(dm & 2)
-   {
-    dd.rw[1][1] = (dar + (1 << ts_adj)) & 0x07FFFFFF;
-    dd.rw[1][0] = (dd.rw[1][1] - (count << ts_adj)) & 0x07FFFFFF;
-   }
-   else
-   {
-    dd.rw[1][0] = dar & 0x07FFFFFF;
-    dd.rw[1][1] = (dd.rw[1][0] + ((dm ? count : 1) << ts_adj)) & 0x07FFFFFF;
-   }
-   //printf("%u, read:[0x%07x, 0x%07x) write:[0x%07x, 0x%07x)\n", ch, dd.rw[0][0], dd.rw[0][1], dd.rw[1][0], dd.rw[1][1]);
-  }
-  else if(!run_cond)
-   DMADebug[ch].rw[0][0] = ~0U;
-
-  if(run_cond && ts == 0x3 && ((sar | dar) & 0xF))
-  {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SH2, "[%s] DMA channel %u, 16-byte transfer size address misalignment, SAR=0x%08x DAR=0x%08x", cpu_name, ch, sar, dar);
-  }
- }
-#endif
 }
 
 INLINE void SH7095::DMA_BusTimingKludge(void)
@@ -2320,9 +2219,6 @@ INLINE T SH7095::ExtBusRead_INLINE(uint32 A)
   DMA_PenaltyKludgeAccum += DMA_PenaltyKludgeAmount;
  }
  //
-#ifdef MDFN_ENABLE_DEV_BUILD
- CheckDMARace(A, sizeof(T), false);
-#endif
  if(SlavePenalty && !BurstHax)
  {
   if(SH7095_mem_timestamp > (BSC.last_mem_time + 1))
@@ -2352,10 +2248,6 @@ INLINE void SH7095::ExtBusWrite_INLINE(uint32 A, T V)
  //
  DMA_PenaltyKludgeAccum += DMA_PenaltyKludgeAmount;
  //
-#ifdef MDFN_ENABLE_DEV_BUILD
- CheckDMARace(A, sizeof(T), true);
-#endif
-
  if(SlavePenalty)
   SH7095_mem_timestamp++;
 
@@ -2388,49 +2280,6 @@ template<unsigned w, typename T>
 static NO_INLINE MDFN_HOT T OnChipRegRead_NI(uint32 A)
 {
  return CPU[w].OnChipRegRead_INLINE<T>(A);
-}
-
-template<typename T>
-INLINE void SH7095::DevBuild_ReadLog(uint32 A)
-{
-#ifdef MDFN_ENABLE_DEV_BUILD
-  if((A & 0xC7FFFFFF) >= 0x06000200 && (A & 0xC7FFFFFF) <= 0x060003FF)
-  {
-   const uint32 pcm = PC & 0x07FFFFFF;
-   bool match = (pcm >= 0x100000) && (pcm < 0x06000600 || pcm >= 0x06000A00);
-
-   if(match && !BWMIgnoreAddr[0][A & 0x1FF])
-   {
-    SS_DBG(SS_DBG_BIOS, "[%s] Read from BIOS area of RAM 0x%08x; PC=0x%08x\n", cpu_name, A, PC);
-   }
-  }
-
-  if((A & 0xC7FFFFFF) >= 0x00000200/*0x00000004*//*0x00000000*/ && (A & 0xC7FFFFFF) <= 0x000FFFFF)
-  {
-   const uint32 pcm = PC & 0x07FFFFFF;
-   bool match = (pcm >= 0x100000) && (pcm < 0x06000600 || pcm >= 0x06000A00);
-
-   if(match)
-    SS_DBG(SS_DBG_BIOS, "[%s] Read from BIOS ROM 0x%06x; PC=0x%08x\n", cpu_name, A, PC);
-  }
-#endif
-}
-
-template<typename T>
-INLINE void SH7095::DevBuild_WriteLog(uint32 A, T V)
-{
-#ifdef MDFN_ENABLE_DEV_BUILD
-  if((A & 0xC7FFFFFF) >= 0x06000200 && (A & 0xC7FFFFFF) <= 0x060003FF)
-  {
-   const uint32 pcm = PC & 0x07FFFFFF;
-   bool match = (pcm >= 0x100000) && (pcm < 0x06000600 || pcm >= 0x06000800);
-
-   if(match && !BWMIgnoreAddr[1][A & 0x1FF])
-   {
-    SS_DBG(SS_DBG_BIOS, "[%s] Write to BIOS area of RAM 0x%08x; PC=0x%08x\n", cpu_name, A, PC);
-   }
-  }
-#endif
 }
 
 //
@@ -2605,7 +2454,6 @@ INLINE void SH7095::Cache_CheckReadIncoherency(CacheEntry* cent, const int way, 
  else														\
   timestamp = std::max<sscpu_timestamp_t>(MA_until, timestamp);							\
 														\
- DevBuild_ReadLog<T>(A); 											\
 														\
  switch(region)													\
  {														\
@@ -2727,7 +2575,6 @@ INLINE void SH7095::Cache_CheckReadIncoherency(CacheEntry* cent, const int way, 
 										\
  MA_until = std::max<sscpu_timestamp_t>(MA_until, timestamp + 1);		\
 										\
- DevBuild_WriteLog<T>(A, V);							\
 										\
  switch(region)									\
  {										\
@@ -2903,10 +2750,6 @@ void NO_INLINE SH7095::Reset(bool power_on_reset, bool from_internal_wdt)
   BSC.RTCOR = 0x00;
  }
  //
-#ifdef MDFN_ENABLE_DEV_BUILD
- for(unsigned ch = 0; ch < 2; ch++)
-  DMADebug[ch].rw[0][0] = ~0U;
-#endif
 
  for(unsigned ch = 0; ch < 2; ch++)
  {

@@ -120,93 +120,12 @@ uint16 FB[2][0x20000];
 //
 //
 //
-#ifdef MDFN_ENABLE_DEV_BUILD
-struct VRAMUsageInfo
-{
- uint64 earliest;
- uint64 latest;
-};
-
-static VRAMUsageInfo VRAMDrawReads[0x40000];
-static VRAMUsageInfo VRAMWrites[0x40000];
-static uint64 VRAMUsageTSBase;
-static uint64 VRAMUsageStartTS;
-
-static void VRAMUsageInit(void)
-{
- VRAMUsageTSBase = 0;
-}
-
-static void VRAMUsageAddBaseTime(int32 amount)
-{
- VRAMUsageTSBase += amount;
-}
-
-static void VRAMUsageStart(void)
-{
- if(MDFN_UNLIKELY(ss_dbg_mask & SS_DBG_VDP1_RACE))
- {
-  for(size_t i = 0; i < 0x40000; i++)
-  {
-   VRAMDrawReads[i].earliest = (uint64)-1;
-   VRAMDrawReads[i].latest = (uint64)-1;
-
-   VRAMWrites[i].earliest = (uint64)-1;
-   VRAMWrites[i].latest = (uint64)-1;
-  }
- }
- VRAMUsageStartTS = VRAMUsageTSBase;
-}
-
-static void VRAMUsageWrite(uint32 A)
-{
- if(MDFN_UNLIKELY(ss_dbg_mask & SS_DBG_VDP1_RACE))
- {
-  const uint64 fullts = VRAMUsageTSBase + SH7095_mem_timestamp;
-  const size_t index = A & 0x3FFFF;
-
-  if(VRAMWrites[index].earliest == (uint64)-1)
-   VRAMWrites[index].earliest = fullts;
-
-  VRAMWrites[index].latest = fullts;
- }
-}
-
-static void VRAMUsageDrawRead(uint32 A)
-{
- if(MDFN_UNLIKELY(ss_dbg_mask & SS_DBG_VDP1_RACE))
- {
-  const uint64 fullts = VRAMUsageTSBase + SH7095_mem_timestamp;
-  const size_t index = A & 0x3FFFF;
-
-  if(VRAMDrawReads[index].earliest == (uint64)-1)
-   VRAMDrawReads[index].earliest = fullts;
-
-  VRAMDrawReads[index].latest = fullts;
- }
-}
-
-static void VRAMUsageEnd(void)
-{
- if(MDFN_UNLIKELY(ss_dbg_mask & SS_DBG_VDP1_RACE))
- {
-  for(unsigned i = 0; i < 0x40000; i++)
-  {
-   if(VRAMWrites[i].latest != (uint64)-1 && VRAMDrawReads[i].latest != (uint64)-1)
-   {
-    SS_DBG(SS_DBG_VDP1_RACE, "[VDP1] VRAM[0x%06x] Race --- Write, earliest=%llu, latest=%llu --- Draw Read, earliest=%llu, latest=%llu\n", i * 2, (unsigned long long)(VRAMWrites[i].earliest - VRAMUsageStartTS), (unsigned long long)(VRAMWrites[i].latest - VRAMUsageStartTS), (unsigned long long)(VRAMDrawReads[i].earliest - VRAMUsageStartTS), (unsigned long long)(VRAMDrawReads[i].latest - VRAMUsageStartTS));
-   }
-  }
- }
-}
-#else
-static INLINE void VRAMUsageInit(void) { }
-static INLINE void VRAMUsageAddBaseTime(int32 amount) { }
-static INLINE void VRAMUsageStart(void) { }
-static INLINE void VRAMUsageWrite(uint32 A) { }
-static INLINE void VRAMUsageDrawRead(uint32 A) { }
-static INLINE void VRAMUsageEnd(void) { }
-#endif
+#define VRAMUsageInit() { }
+#define VRAMUsageAddBaseTime(amount) { }
+#define VRAMUsageStart() { }
+#define VRAMUsageWrite(A) { }
+#define VRAMUsageDrawRead(A) { }
+#define VRAMUsageEnd() { }
 //
 //
 //

@@ -1562,18 +1562,11 @@ switch(Pipe_ID >> 24)
 	{
 	 CONST_VAR(unsigned, m) = instr_nyb2;
 	 const unsigned cri = (instr >> 4) & 0x3;
-#ifdef MDFN_ENABLE_DEV_BUILD
-	 const uint32 old_SR = SR;
-#endif
 
 	 CtrlRegs[cri] = R[m];
 	 if(cri == 0)
 	 {
 	  SR &= 0x3F3;
-#ifdef MDFN_ENABLE_DEV_BUILD
-	  if((old_SR ^ SR) & 0xF0)
-	   SS_DBGTI(SS_DBG_SH2_EXCEPT, "[%s] LDC IMask; 0x%01x->0x%01x, PC=0x%08x", cpu_name, (old_SR >> 4) & 0xF, (SR >> 4) & 0xF, PC);
-#endif
 	  RecalcPendingIntPEX();
 	 }
 	}
@@ -1588,11 +1581,6 @@ switch(Pipe_ID >> 24)
  BEGIN_OP_DLYIDIF(LDC_L)
 	{
 	 uint32 ea;
-#ifdef MDFN_ENABLE_DEV_BUILD
-	 //static uint32 old_SR;
-	 //old_SR = SR;
-	 Resume_new_PC = SR;
-#endif
 	 ea = R[instr_nyb2];
 	 R[instr_nyb2] += 4;
 
@@ -1601,10 +1589,6 @@ switch(Pipe_ID >> 24)
 	 if(((instr >> 4) & 0x3) == 0)
 	 {
 	  SR &= 0x3F3;
-#ifdef MDFN_ENABLE_DEV_BUILD
-	 if((/*old_SR*/Resume_new_PC ^ SR) & 0xF0)
-	  SS_DBGTI(SS_DBG_SH2_EXCEPT, "[%s] LDC.L IMask; 0x%01x->0x%01x, PC=0x%08x", cpu_name, (/*old_SR*/Resume_new_PC >> 4) & 0xF, (SR >> 4) & 0xF, PC);
-#endif
 	  RecalcPendingIntPEX();
 	 }
 
@@ -1667,9 +1651,6 @@ switch(Pipe_ID >> 24)
 	MemRead32(R[15], opexec_new_SR)
 	R[15] += 4;
 
-#ifdef MDFN_ENABLE_DEV_BUILD
-	SS_DBGTI(SS_DBG_SH2_EXCEPT, "[%s] RTE; PC: 0x%08x->0x%08x, SR: 0x%03x->0x%03x", cpu_name, PC, opexec_new_PC, SR, opexec_new_SR & 0x3F3);
-#endif
 
 	SR = opexec_new_SR & 0x3F3;
 	RecalcPendingIntPEX();
