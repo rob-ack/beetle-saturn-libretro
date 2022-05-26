@@ -18,10 +18,6 @@
 #define strcasecmp _stricmp
 #endif
 
-#define GET_FDATA_PTR(fp) (fp->data)
-#define GET_FSIZE_PTR(fp) (fp->size)
-#define GET_FEXTS_PTR(fp) (fp->ext)
-
 extern MDFNGI *MDFNGameInfo;
 
 #include "settings.h"
