@@ -569,7 +569,7 @@ void disc_select( unsigned disc_num )
 	}
 }
 
-bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid, char* sgname, char* sgarea )
+bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid, char* sgname, char* sgarea, bool image_memcache )
 {
 	disc_cleanup();
 
@@ -595,7 +595,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 				{
 					bool success = true;
 					log_cb(RETRO_LOG_INFO, "Adding CD: \"%s\".\n", file_list[i].c_str());
-					CDIF *image  = CDIF_Open(file_list[i].c_str(), false);
+					CDIF *image  = CDIF_Open(file_list[i].c_str(), image_memcache);
 					CDInterfaces.push_back(image);
 				}
 			}
@@ -603,7 +603,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 			{
 				// single disc
 				bool success = true;
-				CDIF *image  = CDIF_Open(content_name, false);
+				CDIF *image  = CDIF_Open(content_name, image_memcache);
 				CDInterfaces.push_back(image);
 			}
 		}

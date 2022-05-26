@@ -266,7 +266,7 @@ bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t)
    return false;
 }
 
-static bool old_cdimagecache = false;
+static bool cdimagecache = false;
 
 static bool boot = true;
 
@@ -285,6 +285,35 @@ static void check_variables(bool startup)
 
    if (startup)
    {
+	   var.key      = "beetle_saturn_cdimagecache";
+           cdimagecache = false;
+
+	   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) 
+			   && var.value)
+		   if (!strcmp(var.value, "enabled"))
+			   cdimagecache = true;
+
+	   var.key = "beetle_saturn_shared_int";
+
+	   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+	   {
+		   if (!strcmp(var.value, "enabled"))
+			   shared_intmemory_toggle = true;
+		   else if (!strcmp(var.value, "disabled"))
+			   shared_intmemory_toggle = false;
+
+	   }
+
+	   var.key = "beetle_saturn_shared_ext";
+
+	   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+	   {
+		   if (!strcmp(var.value, "enabled"))
+			   shared_backup_toggle = true;
+		   else if (!strcmp(var.value, "disabled"))
+			   shared_backup_toggle = false;
+
+	   }
    }
 
    var.key = "beetle_saturn_region";
@@ -357,42 +386,7 @@ static void check_variables(bool startup)
       input_multitap( 2, connected );
    }
 
-   var.key = "beetle_saturn_cdimagecache";
 
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      bool cdimage_cache = true;
-      if (!strcmp(var.value, "enabled"))
-         cdimage_cache = true;
-      else if (!strcmp(var.value, "disabled"))
-         cdimage_cache = false;
-      if (cdimage_cache != old_cdimagecache)
-      {
-         old_cdimagecache = cdimage_cache;
-      }
-   }
-
-   var.key = "beetle_saturn_shared_int";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (!strcmp(var.value, "enabled"))
-         shared_intmemory_toggle = true;
-      else if (!strcmp(var.value, "disabled"))
-         shared_intmemory_toggle = false;
-
-   }
-
-   var.key = "beetle_saturn_shared_ext";
-   
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (!strcmp(var.value, "enabled"))
-         shared_backup_toggle = true;
-      else if (!strcmp(var.value, "disabled"))
-         shared_backup_toggle = false;
-
-   }
 
    var.key = "beetle_saturn_opposite_directions";
 
@@ -560,7 +554,7 @@ static bool MDFNI_LoadGame( const char *name )
          char sgname[0x70 + 1] = { 0 };
          char sgarea[0x10 + 1] = { 0 };
 
-         if ( disc_load_content( MDFNGameInfo, name, fd_id, sgid, sgname, sgarea ) )
+         if ( disc_load_content( MDFNGameInfo, name, fd_id, sgid, sgname, sgarea, cdimagecache ) )
          {
             log_cb(RETRO_LOG_INFO, "Game ID is: %s\n", sgid );
 
