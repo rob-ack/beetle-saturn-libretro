@@ -691,17 +691,6 @@ static sscpu_timestamp_t MidSync(const sscpu_timestamp_t timestamp)
 {
  if(AllowMidSync)
  {
-    //
-    // Don't call SOUND_Update() here, it's not necessary and will subtly alter emulation behavior from the perspective of the emulated program
-    // (which is not a problem in and of itself, but it's preferable to keep settings from altering emulation behavior when they don't need to).
-    //
-    //printf("MidSync: %d\n", VDP2::PeekLine());
-    {
-//       espec->SoundBufSize += SOUND_FlushOutput();
-//       espec->MasterCycles = timestamp * cur_clock_div;
-    }
-    //printf("%d\n", espec->SoundBufSize);
-
     SMPC_UpdateOutput();
 
     MDFN_MidSync();
@@ -719,7 +708,7 @@ void Emulate(EmulateSpecStruct* espec_arg)
  int32 end_ts;
 
  espec = espec_arg;
- AllowMidSync = true;
+ AllowMidSync = setting_midsync;
 
  cur_clock_div = SMPC_StartFrame(espec);
  UpdateSMPCInput(0);
@@ -1122,7 +1111,7 @@ static MDFN_COLD void LoadCartNV(void)
       return;
 
    nvs = filestream_open(
-         MDFN_MakeFName(MDFNMKF_SAV, 0, ext),
+         MDFN_MakeFName(MDFNMKF_CART, 0, ext),
          RETRO_VFS_FILE_ACCESS_READ,
          RETRO_VFS_FILE_ACCESS_HINT_NONE);
 
@@ -1154,7 +1143,7 @@ static MDFN_COLD void SaveCartNV(void)
 
    if(ext)
    {
-      FileStream nvs(MDFN_MakeFName(MDFNMKF_SAV, 0, ext), MODE_WRITE_INPLACE);
+      FileStream nvs(MDFN_MakeFName(MDFNMKF_CART, 0, ext), MODE_WRITE_INPLACE);
 
       if(nv16)
       {

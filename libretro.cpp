@@ -25,6 +25,7 @@
 #include "mednafen/ss/sound.h"
 
 #include "libretro_cbs.h"
+#include "libretro_core_options.h"
 #include "libretro_settings.h"
 #include "input.h"
 #include "disc.h"
@@ -82,6 +83,9 @@ char retro_cd_base_name[4096];
 #define RETRO_SLASH "/"
 #endif
 #endif
+
+static bool libretro_supports_option_categories = false;
+static bool libretro_supports_bitmasks = false;
 
 MDFNGI *MDFNGameInfo = NULL;
 
@@ -266,9 +270,14 @@ static bool old_cdimagecache = false;
 
 static bool boot = true;
 
-// shared memory cards support
-static bool shared_memorycards = false;
-static bool shared_memorycards_toggle = false;
+// shared internal memory support
+bool shared_intmemory = false;
+bool shared_intmemory_toggle = false;
+
+
+// shared backup memory support
+bool shared_backup = false;
+bool shared_backup_toggle = false;
 
 static void check_variables(bool startup)
 {
@@ -361,6 +370,48 @@ static void check_variables(bool startup)
       {
          old_cdimagecache = cdimage_cache;
       }
+   }
+
+   var.key = "beetle_saturn_shared_int";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         shared_intmemory_toggle = true;
+      else if (!strcmp(var.value, "disabled"))
+         shared_intmemory_toggle = false;
+
+   }
+
+   var.key = "beetle_saturn_shared_ext";
+   
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         shared_backup_toggle = true;
+      else if (!strcmp(var.value, "disabled"))
+         shared_backup_toggle = false;
+
+   }
+
+   var.key = "beetle_saturn_opposite_directions";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         opposite_directions = true;
+      else if (!strcmp(var.value, "disabled"))
+         opposite_directions = false;
+   }
+
+   var.key = "beetle_saturn_midsync";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         setting_midsync = true;
+      else if (!strcmp(var.value, "disabled"))
+         setting_midsync = false;
    }
 
    var.key = "beetle_saturn_autortc";
@@ -608,7 +659,8 @@ bool retro_load_game(const struct retro_game_info *info)
 
    check_variables(true);
    //make sure shared memory cards and save states are enabled only at startup
-   shared_memorycards = shared_memorycards_toggle;
+   shared_intmemory = shared_intmemory_toggle;
+   shared_backup = shared_backup_toggle;
 
    // Let's try to load the game. If this fails then things are very wrong.
    if (MDFNI_LoadGame(retro_cd_path) == false)
@@ -687,7 +739,7 @@ void retro_run(void)
 
    input_poll_cb();
 
-   input_update( input_state_cb );
+   input_update( input_state_cb, libretro_supports_bitmasks );
 
    static int32 rects[MEDNAFEN_CORE_GEOMETRY_MAX_H];
    rects[0] = ~0;
@@ -815,14 +867,16 @@ void retro_deinit(void)
          MEDNAFEN_CORE_NAME, (double)audio_frames / video_frames);
    log_cb(RETRO_LOG_INFO, "[%s]: Estimated FPS: %.5f\n",
          MEDNAFEN_CORE_NAME, (double)video_frames * 44100 / audio_frames);
+ 
+   libretro_supports_option_categories = false;
+   libretro_supports_bitmasks          = false;
 }
 
 unsigned retro_get_region(void)
 {
    if (is_pal)
        return RETRO_REGION_PAL;  //Ben Swith PAL
-   else
-       return RETRO_REGION_NTSC;
+   return RETRO_REGION_NTSC;
 }
 
 unsigned retro_api_version(void)
@@ -836,29 +890,9 @@ void retro_set_environment( retro_environment_t cb )
    struct retro_led_interface led_interface;
    environ_cb = cb;
 
-   static const struct retro_variable vars[] = {
-      { "beetle_saturn_region", "System Region; Auto Detect|Japan|North America|Europe|South Korea|Asia (NTSC)|Asia (PAL)|Brazil|Latin America" },
-      { "beetle_saturn_cart", "Cartridge; Auto Detect|None|Backup Memory|Extended RAM (1MB)|Extended RAM (4MB)|The King of Fighters '95|Ultraman: Hikari no Kyojin Densetsu" },
-      { "beetle_saturn_multitap_port1", "6Player Adaptor on Port 1; disabled|enabled" },
-      { "beetle_saturn_multitap_port2", "6Player Adaptor on Port 2; disabled|enabled" },
-      { "beetle_saturn_analog_stick_deadzone", "Analog Stick Deadzone; 15%|20%|25%|30%|0%|5%|10%"},
-      { "beetle_saturn_trigger_deadzone", "Trigger Deadzone; 15%|20%|25%|30%|0%|5%|10%"},
-      { "beetle_saturn_mouse_sensitivity", "Mouse Sensitivity; 100%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|5%|10%|15%|20%|25%|30%|35%|40%|45%|50%|55%|60%|65%|70%|75%|80%|85%|90%|95%" },
-      { "beetle_saturn_virtuagun_crosshair", "Gun Crosshair; Cross|Dot|Off" },
-      { "beetle_saturn_virtuagun_input", "Gun Input Mode; Lightgun|Touchscreen" },
-      { "beetle_saturn_cdimagecache", "CD Image Cache (restart); disabled|enabled" },
-      { "beetle_saturn_autortc", "Automatically set RTC on game load; enabled|disabled" },
-      { "beetle_saturn_autortc_lang", "BIOS language; english|german|french|spanish|italian|japanese" },
-      { "beetle_saturn_horizontal_overscan", "Horizontal Overscan Mask; 0|2|4|6|8|10|12|14|16|18|20|22|24|26|28|30|32|34|36|38|40|42|44|46|48|50|52|54|56|58|60" },
-      { "beetle_saturn_initial_scanline", "Initial scanline; 0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" },
-      { "beetle_saturn_last_scanline", "Last scanline; 239|210|211|212|213|214|215|216|217|218|219|220|221|222|223|224|225|226|227|228|229|230|231|232|233|234|235|236|237|238" },
-      { "beetle_saturn_initial_scanline_pal", "Initial scanline PAL; 16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40|41|42|43|44|45|46|47|48|49|50|51|52|53|54|55|56|57|58|59|60|0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15" },
-      { "beetle_saturn_last_scanline_pal", "Last scanline PAL; 271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|287|230|231|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270" },
-      { "beetle_saturn_horizontal_blend", "Enable Horizontal Blend(blur); disabled|enabled" },
-      { NULL, NULL },
-   };
-
-   cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
+   libretro_supports_option_categories = false;
+   libretro_set_core_options(environ_cb,
+           &libretro_supports_option_categories);
 
    vfs_iface_info.required_interface_version = 1;
    vfs_iface_info.iface                      = NULL;
@@ -1010,7 +1044,13 @@ const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)
       case MDFNMKF_SAV:
          snprintf(fullpath, sizeof(fullpath), "%s" RETRO_SLASH "%s.%s",
                retro_save_directory,
-               (!shared_memorycards) ? retro_cd_base_name : "mednafen_saturn_libretro_shared",
+               (!shared_intmemory) ? retro_cd_base_name : "mednafen_saturn_libretro_shared",
+               cd1);
+         break;
+      case MDFNMKF_CART:
+         snprintf(fullpath, sizeof(fullpath), "%s" RETRO_SLASH "%s.%s",
+               retro_save_directory,
+               (!shared_backup) ? retro_cd_base_name : "mednafen_saturn_libretro_shared",
                cd1);
          break;
       case MDFNMKF_FIRMWARE:
@@ -1056,5 +1096,5 @@ void MDFN_DispMessage(const char *format, ...)
 void MDFN_MidSync(void)
 {
     input_poll_cb();
-    input_update( input_state_cb );
+    input_update( input_state_cb, libretro_supports_bitmasks);
 }
