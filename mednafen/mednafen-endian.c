@@ -165,28 +165,3 @@ void FlipByteOrder(uint8_t *src, uint32_t count)
       start++;
    }
 }
-
-int read32le(uint32_t *Bufo, FILE *fp)
-{
-   uint32_t buf;
-   if(fread(&buf,1,4,fp)<4)
-      return 0;
-#ifdef MSB_FIRST
-   *(uint32_t*)Bufo=((buf&0xFF)<<24)|((buf&0xFF00)<<8)|((buf&0xFF0000)>>8)|((buf&0xFF000000)>>24);
-#else
-   *(uint32_t*)Bufo=buf;
-#endif
-   return 1;
-}
-
-int read16le(char *d, FILE *fp)
-{
-#ifdef MSB_FIRST
-   int ret=fread(d+1,1,1,fp);
-   ret+=fread(d,1,1,fp);
-   return ret<2?0:2;
-#else
-   return((fread(d,1,2,fp)<2)?0:2);
-#endif
-}
-
