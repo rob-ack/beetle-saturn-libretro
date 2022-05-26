@@ -96,40 +96,6 @@ extern MDFNGI EmulatedSS;
  MDFN_COLD void CloseGame(void);
  void Emulate(EmulateSpecStruct* espec_arg);
 
-static void extract_basename(char *buf, const char *path, size_t size)
-{
-   const char *base = strrchr(path, '/');
-   if (!base)
-      base = strrchr(path, '\\');
-   if (!base)
-      base = path;
-
-   if (*base == '\\' || *base == '/')
-      base++;
-
-   strncpy(buf, base, size - 1);
-   buf[size - 1] = '\0';
-
-   char *ext = strrchr(buf, '.');
-   if (ext)
-      *ext = '\0';
-}
-
-static void extract_directory(char *buf, const char *path, size_t size)
-{
-   strncpy(buf, path, size - 1);
-   buf[size - 1] = '\0';
-
-   char *base = strrchr(buf, '/');
-   if (!base)
-      base = strrchr(buf, '\\');
-
-   if (base)
-      *base = '\0';
-   else
-      buf[0] = '\0';
-}
-
 //forward decls
 static bool overscan;
 static double last_sound_rate;
@@ -674,7 +640,7 @@ bool retro_load_game(const struct retro_game_info *info)
 
    boot = false;
 
-   disc_select(0);
+   disc_select(disk_get_image_index());
 
    frame_count = 0;
    internal_frame_count = 0;

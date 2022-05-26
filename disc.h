@@ -5,7 +5,12 @@
 #include "mednafen/git.h"
 #include "mednafen/mednafen-types.h"
 
+extern void extract_basename(char *buf, const char *path, size_t size);
+extern void extract_directory(char *buf, const char *path, size_t size);
+
 // These routines handle disc drive front-end.
+
+extern unsigned disk_get_image_index(void);
 
 void disc_init( retro_environment_t environ_cb );
 
