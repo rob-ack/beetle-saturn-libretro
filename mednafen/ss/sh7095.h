@@ -30,7 +30,6 @@ class SH7095 final
  ~SH7095() MDFN_COLD;
 
  void Init(const bool EmulateICache, const bool CacheBypassHack) MDFN_COLD;
- void SetDebugMode(const bool DebugMode); // Don't mark MDFN_COLD, will cause newer gcc's optimizer to put the CPU execution loop in the wrong text section.
 
  void StateAction(StateMem* sm, const unsigned load, const bool data_only, const char* sname) MDFN_COLD;
  void StateAction_SlaveResume(StateMem* sm, const unsigned load, const bool data_only, const char* sname) MDFN_COLD;
@@ -64,8 +63,8 @@ class SH7095 final
   ExtHaltDMA = (ExtHaltDMA & ~2) | (state << 1);
  }
 
- // When entering Step(), EmulateICache and DebugMode must match what was passed to Init() and SetDebugMode()
- template<unsigned which, bool EmulateICache, bool DebugMode>
+ // When entering Step(), EmulateICache must match what was passed to Init()
+ template<unsigned which, bool EmulateICache>
  void Step(void);
 
  // Slave only
@@ -186,7 +185,6 @@ class SH7095 final
   EPENDING_IPRIOLEV_SHIFT = 28	// 4 bits
  };
 
- template<bool DebugMode>
  uint32 Exception(const unsigned exnum, const unsigned vecnum);
 
  //
@@ -478,7 +476,7 @@ class SH7095 final
  uint8 GetPendingInt(uint8*);
  void RecalcPendingIntPEX(void);
 
- template<bool EmulateICache, bool DebugMode, bool IntPreventNext>
+ template<bool EmulateICache, bool IntPreventNext>
  INLINE void DoIDIF_INLINE(void);
 
  template<bool SlavePenalty, typename T, bool BurstHax>

@@ -226,32 +226,6 @@ void SH7095::RecalcMRWFP_1_7(void)
  #undef MAHL_P
 }
 
-void SH7095::SetDebugMode(bool DebugMode)
-{
- if(DM_Setting != DebugMode)
- {
-  if(ResumePoint != nullptr)
-  {
-   bool found = false;
-
-   for(unsigned i = 0; i < 512; i++)
-   {
-    if(ResumeTableP[DM_Setting][i] == ResumePoint)
-    {
-     ResumePoint = ResumeTableP[DebugMode][i];
-     found = true;
-     break;
-    }
-   }
-   assert(found);
-  }
-  DM_Setting = DebugMode;
-  //
-  RecalcMRWFP_0();
-  RecalcMRWFP_1_7();
- }
-}
-
 void SH7095::Init(const bool EmulateICache, const bool CacheBypassHack)
 {
  CBH_Setting = CacheBypassHack;
@@ -2896,9 +2870,6 @@ static const uint8 InstrDecodeTab[65536] =
 /*								*/
 #define FetchIF()							\
 {									\
- if(DebugMode)								\
-  PC_IF = PC;								\
-									\
  if(EmulateICache)							\
  {									\
   Pipe_IF = (uint16)IBuffer;						\
@@ -2924,9 +2895,6 @@ static const uint8 InstrDecodeTab[65536] =
 
 #define FetchIF_ForceIBufferFill()					\
 {									\
- if(DebugMode)								\
-  PC_IF = PC;								\
-									\
  if(EmulateICache)							\
  {									\
   MemReadInstr(PC &~ 2, IBuffer);					\
@@ -2960,9 +2928,6 @@ static const uint8 InstrDecodeTab[65536] =
    epo = 0;								\
  }									\
 									\
- if(DebugMode)								\
-  PC_ID = PC_IF;							\
-									\
  Pipe_ID = Pipe_IF | (op << 24) | epo;					\
 }
 
@@ -2979,10 +2944,6 @@ static const uint8 InstrDecodeTab[65536] =
 {									\
  {									\
   const uint32 target = (target_);					\
-									\
-  if(DebugMode > 0)							\
-   DBG_AddBranchTrace(which, target, -1);				\
-									\
   PC = target;								\
  }									\
 									\
@@ -3012,13 +2973,10 @@ static const uint8 InstrDecodeTab[65536] =
  }									\
 }
 
-#define Branch(need_addbt, target_)					\
+#define Branch(target_)					\
 {									\
  {									\
   const uint32 target = (target_);					\
-									\
-  if(need_addbt)							\
-   DBG_AddBranchTrace(which, target, -1);				\
 									\
   PC = target;								\
  }									\
@@ -3046,13 +3004,7 @@ static const uint8 InstrDecodeTab[65536] =
 /* Remember to use with BEGIN_OP_DLYIDIF instead of BEGIN_OP */
 #define UCDelayBranch(target)						\
 {									\
- if(DebugMode > 0)							\
-  DBG_AddBranchTrace(which, target, -1);				\
-									\
  PC = target;								\
-									\
- if(DebugMode)								\
-  PC_ID = PC_IF;							\
 									\
  Pipe_ID = Pipe_IF | ((InstrDecodeTab[Pipe_IF] | 0x80) << 24);		\
 									\
@@ -3075,7 +3027,7 @@ static const uint8 InstrDecodeTab[65536] =
 #define CondRelBranch(cond, disp)	\
 {					\
  if(cond)				\
-  Branch(DebugMode, PC + (disp));	\
+  Branch(PC + (disp));	\
 }
 
 #define CondRelDelayBranch(cond, disp)	\
@@ -3085,19 +3037,16 @@ static const uint8 InstrDecodeTab[65536] =
 }
 
 /* Reset/Poweron exception handling. */
-#define Exception_ResPow(exnum, vecnum, new_PC)				\
+#define Exception_ResPow(vecnum, new_PC)				\
 {									\
  timestamp += 2;							\
  timestamp = std::max<sscpu_timestamp_t>(MA_until, timestamp);		\
 									\
  MemRead32(((vecnum) + 0) << 2, new_PC);				\
  MemRead32(((vecnum) + 1) << 2, R[15]);					\
-									\
- if(DebugMode)								\
-  DBG_AddBranchTrace(this - CPU, new_PC, (exnum), (vecnum));		\
 }
 
-#define Exception(exnum, vecnum, new_PC)				\
+#define Exception(vecnum, new_PC)				\
 {									\
  timestamp += 2;							\
  timestamp = std::max<sscpu_timestamp_t>(MA_until, timestamp);		\
@@ -3114,9 +3063,6 @@ static const uint8 InstrDecodeTab[65536] =
  timestamp++;								\
  MemRead32(VBR + ((vecnum) << 2), new_PC);				\
  timestamp++;								\
-									\
- if(DebugMode)								\
-  DBG_AddBranchTrace(this - CPU, new_PC, (exnum), (vecnum));		\
 									\
 }
 
@@ -3139,7 +3085,7 @@ static const uint8 InstrDecodeTab[65536] =
 
 */
 
-#define DoIDIF(IntPreventNext) DoIDIF_NI<which, EmulateICache, DebugMode, IntPreventNext>()
+#define DoIDIF(IntPreventNext) DoIDIF_NI<which, EmulateICache, IntPreventNext>()
 
 #define OnChipRegRead(T, A) OnChipRegRead_INLINE<T>(A)
 #define ExtBusRead(T, BurstHax, A) ExtBusRead_NI<which, false, T, BurstHax>(A)
@@ -3155,23 +3101,23 @@ static const uint8 InstrDecodeTab[65536] =
 #define MemWrite8(A, V) MWFP8[(A) >> 29]((A), (V));
 #define MemWrite16(A, V) MWFP16[(A) >> 29]((A), (V));
 #define MemWrite32(A, V) MWFP32[(A) >> 29]((A), (V));
-#define CHECK_EXIT_RESUME() { if(EmulateICache && !which) { if(DebugMode) CPU[1].RunSlaveUntil_Debug(timestamp); else CPU[1].RunSlaveUntil(timestamp); } }
+#define CHECK_EXIT_RESUME() { if(EmulateICache && !which) { CPU[1].RunSlaveUntil(timestamp); } }
 #define CONST_VAR(T, n) const T n
 #define RESUME_VAR(T, n) T n
 
-template<bool EmulateICache, bool DebugMode, bool IntPreventNext>
+template<bool EmulateICache, bool IntPreventNext>
 INLINE void SH7095::DoIDIF_INLINE(void)
 {
  DoIDIF_MACRO(IntPreventNext);
 }
 
-template<unsigned which, bool EmulateICache, bool DebugMode, bool IntPreventNext>
+template<unsigned which, bool EmulateICache, bool IntPreventNext>
 static NO_INLINE MDFN_HOT void DoIDIF_NI(void)
 {
- CPU[which].DoIDIF_INLINE<EmulateICache, DebugMode, IntPreventNext>();
+ CPU[which].DoIDIF_INLINE<EmulateICache, IntPreventNext>();
 }
 
-template<unsigned which, bool EmulateICache, bool DebugMode>
+template<unsigned which, bool EmulateICache>
 INLINE void SH7095::Step(void)
 {
  //

@@ -1810,8 +1810,8 @@ switch(Pipe_ID >> 24)
 	RESUME_VAR(uint32, opexec_new_PC);
 
 	PC -= 2;
-	Exception(EXCEPTION_TRAP, (uint8)instr, opexec_new_PC)
-	Branch(false, opexec_new_PC);
+	Exception((uint8)instr, opexec_new_PC)
+	Branch(opexec_new_PC);
  END_OP
 
 
@@ -1828,8 +1828,8 @@ switch(Pipe_ID >> 24)
 	RESUME_VAR(uint32, opexec_new_PC);
 
 	PC -= 4;
-	Exception(EXCEPTION_ILLINSTR, VECNUM_ILLINSTR, opexec_new_PC);
-	Branch(false, opexec_new_PC);
+	Exception(VECNUM_ILLINSTR, opexec_new_PC);
+	Branch(opexec_new_PC);
  END_OP
 
  //
@@ -1841,8 +1841,8 @@ switch(Pipe_ID >> 24)
 	RESUME_VAR(uint32, opexec_new_PC);
 
 	PC -= 2;
-	Exception(EXCEPTION_ILLSLOT, VECNUM_ILLSLOT, opexec_new_PC);
-	Branch(false, opexec_new_PC);
+	Exception(VECNUM_ILLSLOT, opexec_new_PC);
+	Branch(opexec_new_PC);
  END_OP
 
  //
@@ -1850,7 +1850,6 @@ switch(Pipe_ID >> 24)
  //
  BEGIN_OP_DLYIDIF(PSEUDO_EPENDING)
 	RESUME_VAR(uint32, opexec_new_PC);
-	RESUME_VAR(uint8, opexec_exnum);
 	RESUME_VAR(uint8, opexec_vecnum);
 
 	opexec_new_PC = 0;
@@ -1878,16 +1877,12 @@ switch(Pipe_ID >> 24)
 	else if(MDFN_UNLIKELY(TPP(PEX_POWERON) || TPP(PEX_RESET)))
 	{
 	 EPending = 0;
-	 opexec_exnum = EXCEPTION_POWERON;
 	 opexec_vecnum = VECNUM_POWERON;
 
 	 if(TPP(PEX_RESET))
-	 {
-	  opexec_exnum = EXCEPTION_RESET;
 	  opexec_vecnum = VECNUM_RESET;
-	 }
 
-	 Exception_ResPow(opexec_exnum, opexec_vecnum, opexec_new_PC);
+	 Exception_ResPow(opexec_vecnum, opexec_new_PC);
 	}
 	else if(MDFN_UNLIKELY(TPP(PEX_PSEUDO_DMABURST)))
 	{
@@ -1898,20 +1893,20 @@ switch(Pipe_ID >> 24)
 	{
 	 PC -= 4;
 	 ClearPEX(PEX_CPUADDR);
-	 Exception(EXCEPTION_CPUADDR, VECNUM_CPUADDR, opexec_new_PC);
+	 Exception(VECNUM_CPUADDR, opexec_new_PC);
 	 ClearPEX(PEX_CPUADDR);	// Infinite recursive address errors are not good(stack wraparound could clobber backup memory).
 	}
 	else if(MDFN_UNLIKELY(TPP(PEX_DMAADDR)))
 	{
 	 PC -= 4;
 	 ClearPEX(PEX_DMAADDR);
-	 Exception(EXCEPTION_DMAADDR, VECNUM_DMAADDR, opexec_new_PC);
+	 Exception(VECNUM_DMAADDR, opexec_new_PC);
 	}
 	else if(TPP(PEX_NMI))
 	{
 	 PC -= 4;
 	 ClearPEX(PEX_NMI);
-	 Exception(EXCEPTION_NMI, VECNUM_NMI, opexec_new_PC);
+	 Exception(VECNUM_NMI, opexec_new_PC);
 	 //
 	 //
 	 //
@@ -1931,7 +1926,7 @@ switch(Pipe_ID >> 24)
 	  GetPendingInt(&opexec_vecnum);
 
 	  PC -= 4;
-	  Exception(EXCEPTION_INT, opexec_vecnum, opexec_new_PC);
+	  Exception(opexec_vecnum, opexec_new_PC);
 	  //
 	  //
 	  //
@@ -1963,7 +1958,7 @@ switch(Pipe_ID >> 24)
 	//
 	//
 	//
-	Branch(false, opexec_new_PC);
+	Branch(opexec_new_PC);
  END_OP
 
  BEGIN_OP_DLYIDIF(PSEUDO_DMABURST)

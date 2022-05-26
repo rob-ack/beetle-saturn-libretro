@@ -79,10 +79,6 @@ INLINE void PokeFB(const bool which, const uint32 addr, const uint8 val)
  ne16_wbo_be<uint8>(FB[which], addr & 0x3FFFF, val);
 }
 
-#ifdef HAVE_DEBUG
-void MakeDump(const std::string& path) MDFN_COLD;
-#endif
-
 enum
 {
  GSREG_SYSCLIPX = 0,

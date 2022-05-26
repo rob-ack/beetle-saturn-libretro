@@ -43,14 +43,6 @@ typedef enum
 #include "state.h"
 #include "settings-common.h"
 
-#ifdef WANT_DEBUGGER
-// #ifdef WANT_DEBUGGER
-// typedef struct DebuggerInfoStruct;
-// #else
-#include "debug.h"
-
-#endif
-
 enum InputDeviceInputType : uint8
 {
  IDIT_PADDING = 0,	// n-bit, zero

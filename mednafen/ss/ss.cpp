@@ -594,13 +594,10 @@ void SS_RequestMLExit(void)
 
 #pragma GCC push_options
 #pragma GCC optimize("O2,no-unroll-loops,no-peel-loops,no-crossjumping")
-template<bool EmulateICache, bool DebugMode>
-static INLINE int32 RunLoop_INLINE(EmulateSpecStruct* espec)
+template<bool EmulateICache>
+static NO_INLINE MDFN_HOT int32 RunLoop(EmulateSpecStruct* espec)
 {
  sscpu_timestamp_t eff_ts = 0;
-
- for(unsigned c = 0; c < 2; c++)
-  CPU[c].SetDebugMode(DebugMode);
 
  //printf("%d %d\n", SH7095_mem_timestamp, CPU[0].timestamp);
  do
@@ -614,30 +611,18 @@ static INLINE int32 RunLoop_INLINE(EmulateSpecStruct* espec)
   {
    do
    {
-    if(DebugMode)
-    {
-     DBG_SetEffTS(eff_ts);
-     DBG_CPUHandler<0>();
-    }
-
-    CPU[0].Step<0, EmulateICache, DebugMode>();
+    CPU[0].Step<0, EmulateICache>();
     CPU[0].DMA_BusTimingKludge();
 
     if(EmulateICache)
     {
-     if(DebugMode)
-      CPU[1].RunSlaveUntil_Debug(CPU[0].timestamp);
-     else
       CPU[1].RunSlaveUntil(CPU[0].timestamp);
     }
     else
     {
      while(MDFN_LIKELY(CPU[0].timestamp > CPU[1].timestamp))
      {
-      if(DebugMode)
-       DBG_CPUHandler<1>();
-
-      CPU[1].Step<1, false, DebugMode>();
+      CPU[1].Step<1, false>();
      }
     }
 
@@ -650,20 +635,7 @@ static INLINE int32 RunLoop_INLINE(EmulateSpecStruct* espec)
   } while(MDFN_LIKELY(EventHandler(eff_ts)));
  } while(MDFN_LIKELY(Running != 0));
 
- //printf(" End: %d %d -- %d\n", SH7095_mem_timestamp, CPU[0].timestamp, eff_ts);
  return eff_ts;
-}
-
-template<bool EmulateICache>
-static NO_INLINE MDFN_HOT int32 RunLoop(EmulateSpecStruct* espec)
-{
- return RunLoop_INLINE<EmulateICache, false>(espec);
-}
-
-template<bool EmulateICache>
-static NO_INLINE MDFN_COLD int32 RunLoop_Debug(EmulateSpecStruct* espec)
-{
- return RunLoop_INLINE<EmulateICache, true>(espec);
 }
 
 #pragma GCC pop_options
@@ -759,19 +731,10 @@ void Emulate(EmulateSpecStruct* espec_arg)
  //
  //
  //
-#ifdef WANT_DEBUGGER
- #define RLTDAT(eic) RunLoop_Debug<eic>
-#else
- #define RLTDAT(eic) RunLoop<eic>
-#endif
- static int32 (*const rltab[2][2])(EmulateSpecStruct*) =
- {
-  //DebugMode=false  DebugMode=true
-  { RunLoop<false>, RLTDAT(false) },	// EmulateICache=false
-  { RunLoop<true>,  RLTDAT(true)  },	// EmulateICache=true
- };
-#undef RLTDAT
- end_ts = rltab[NeedEmuICache][DBG_NeedCPUHooks()](espec);
+ if (NeedEmuICache)
+  end_ts = RunLoop<true>(espec);
+ else
+  end_ts = RunLoop<false>(espec);
  assert(end_ts >= 0);
 
  ForceEventUpdates(end_ts);
@@ -861,9 +824,6 @@ static MDFN_COLD void Cleanup(void)
 {
  CART_Kill();
 
-#ifdef HAVE_DEBUG
- DBG_Kill();
-#endif
  VDP1::Kill();
  VDP2::Kill();
  SOUND_Kill();
@@ -1032,10 +992,6 @@ bool MDFN_COLD InitCommon(const unsigned cpucache_emumode, const unsigned horrib
 
    InitEvents();
    UpdateInputLastBigTS = 0;
-
-#ifdef HAVE_DEBUG
-   DBG_Init();
-#endif
 
    // Apply multi-tap state to SMPC
    SMPC_SetMultitap( 0, setting_multitap_port1 );

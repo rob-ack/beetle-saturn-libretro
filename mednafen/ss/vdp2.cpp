@@ -1422,28 +1422,4 @@ void StateAction(StateMem* sm, const unsigned load, const bool data_only)
  VDP2REND_StateAction(sm, load, data_only, RawRegs, CRAM, VRAM);
 }
 
-#ifdef HAVE_DEBUG
-void MakeDump(const std::string& path)
-{
- FileStream fp(path, FileStream::MODE_WRITE);
-
- fp.print_format(" { ");
- for(unsigned i = 0; i < 0x100; i++)
-  fp.print_format("0x%04x, ", RawRegs[i]);
- fp.print_format(" }, \n");
-
- fp.print_format(" { ");
- for(unsigned i = 0; i < 2048; i++)
-  fp.print_format("0x%04x, ", CRAM[i]);
- fp.print_format(" }, \n");
-
- fp.print_format(" { ");
- for(unsigned i = 0; i < 0x40000; i++)
-  fp.print_format("0x%04x, ", VRAM[i]);
- fp.print_format(" }, \n");
-
- fp.close();
-}
-#endif
-
 }
