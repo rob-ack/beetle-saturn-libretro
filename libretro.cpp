@@ -162,6 +162,39 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...)
    // stub
 }
 
+/* LED interface */
+extern int Running; // variable in ss.cpp
+extern uint8 GetDriveStatus(void);
+static retro_set_led_state_t led_state_cb = NULL;
+static unsigned int retro_led_state[2] = {0};
+static void retro_led_interface(void)
+{
+   /* 0: Power
+    * 1: CD */
+
+   unsigned int led_state[2] = {0};
+   unsigned int l            = 0;
+
+   unsigned int drive_status = GetDriveStatus();
+   /* Active values:
+    * STATUS_BUSY	 = 0x00,
+    * STATUS_PLAY	 = 0x03,
+    * STATUS_SEEK	 = 0x04,
+    * STATUS_SCAN	 = 0x05, */
+
+   led_state[0] = (!Running) ? 1 : 0;
+   led_state[1] = (drive_status == 0 || drive_status == 3 || drive_status == 4 || drive_status == 5) ? 1 : 0;
+
+   for (l = 0; l < sizeof(led_state)/sizeof(led_state[0]); l++)
+   {
+      if (retro_led_state[l] != led_state[l])
+      {
+         retro_led_state[l] = led_state[l];
+         led_state_cb(l, led_state[l]);
+      }
+   }
+}
+
 void retro_init(void)
 {
    struct retro_log_callback log;
@@ -714,6 +747,10 @@ void retro_run(void)
       input_set_geometry( width, height );
    }
 
+   /* LED interface */
+   if (led_state_cb)
+      retro_led_interface();
+
    pix += surf->pitchinpix * (linevisfirst << PrevInterlaced) + overscan_mask;
 
    fb = pix;
@@ -784,6 +821,7 @@ unsigned retro_api_version(void)
 void retro_set_environment( retro_environment_t cb )
 {
    struct retro_vfs_interface_info vfs_iface_info;
+   struct retro_led_interface led_interface;
    environ_cb = cb;
 
    static const struct retro_variable vars[] = {
@@ -814,7 +852,11 @@ void retro_set_environment( retro_environment_t cb )
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
       filestream_vfs_init(&vfs_iface_info);
 
-   input_set_env( cb );
+   environ_cb(RETRO_ENVIRONMENT_GET_LED_INTERFACE, &led_interface);
+   if (led_interface.set_led_state && !led_state_cb)
+      led_state_cb = led_interface.set_led_state;
+
+   input_set_env(cb);
 }
 
 void retro_set_audio_sample(retro_audio_sample_t cb)

@@ -408,7 +408,7 @@ void SS_SetPhysMemMap(uint32 Astart, uint32 Aend, uint16* ptr, uint32 length, bo
 //     potentially being called from deep within the memory read/write
 //     functions.
 //
-static int Running;
+int Running;
 event_list_entry events[SS_EVENT__COUNT];
 
 static sscpu_timestamp_t next_event_ts;

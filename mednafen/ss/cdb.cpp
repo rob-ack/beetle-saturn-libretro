@@ -1422,6 +1422,11 @@ enum : int { CommandPhaseBias = __COUNTER__ + 1 };
 			   }
 
 
+uint8 GetDriveStatus(void)
+{
+   return CurPosInfo.status;
+}
+
 // Drive commands: Init, Open, Play, Seek, Scan
 //   return busy status
 // Commands that change drive status:
