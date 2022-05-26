@@ -416,8 +416,6 @@ bool SetupDrawLine(int32* const cycle_counter, const bool AA, const bool Texture
  p1.x &= 0x1FFF;
  p1.y &= 0x1FFF;
 
- //printf("(0x%04x,0x%04x) -> (0x%04x,0x%04x)\n", p0.x, p0.y, p1.x, p1.y);
-
  if(!PCD)
  {
   bool swapped = false;
@@ -467,9 +465,6 @@ bool SetupDrawLine(int32* const cycle_counter, const bool AA, const bool Texture
  lid.term_xy = (p1.x & 0x7FF) + ((p1.y & 0x7FF) << 16);
  lid.drawn_ac = true;	// Drawn all-clipped
  lid.color = LineData.color;
-
- //if(max_adx_ady >= 2048)
- // printf("%d,%d ->  %d, %d\n", p0.x, p0.y, p1.x, p1.y);
 
  if(GouraudEn)
   lid.g.Setup(max_adx_ady + 1, p0.g, p1.g);
@@ -575,11 +570,6 @@ void EdgeStepper::Setup(const bool gourauden, const line_vertex& p0, const line_
   int32 abs_dx = abs(dx);
   int32 abs_dy = abs(dy);
   int32 max_adxdy = std::max<int32>(abs_dx, abs_dy);
-
-  //if(abs_dy == abs_dx)
-  // printf("edge abs_dy == abs_dx; dy=%d dx=%d\n", dy, dx);
-
-  //printf("%d %d, %d\n", dx, dy, dmax);
 
   x = p0.x;
   x_inc = (dx >= 0) ? 1 : -1;
@@ -772,10 +762,7 @@ sscpu_timestamp_t Update(sscpu_timestamp_t timestamp)
   CycleCounter = VDP1_UpdateTimingGran;
 
  if(CycleCounter > 0 && SCU_CheckVDP1HaltKludge())
- {
-  //puts("Kludge");
   CycleCounter = 0;
- }
  else if(DrawingActive)
   DoDrawing();
 
@@ -832,7 +819,6 @@ void SetHBVB(const sscpu_timestamp_t event_timestamp, const bool new_hb_status, 
    if(FBVBEraseActive)
    {
     int32 count = event_timestamp - FBVBEraseLastTS;
-    //printf("%d %d, %d\n", event_timestamp, FBVBEraseLastTS, count);
     //
     //
     //
@@ -852,8 +838,6 @@ void SetHBVB(const sscpu_timestamp_t event_timestamp, const bool new_hb_status, 
      {
       for(unsigned sub = 0; sub < 8; sub++)
       {
-       //printf("%d %d:%d %04x\n", FBDrawWhich, x, y, fill_data);
-       //printf("%lld\n", &fbyptr[x & fb_x_mask] - FB[!FBDrawWhich]);
        fbyptr[x & EraseParams.fb_x_mask] = EraseParams.fill_data;
        x++;
       }
@@ -1001,8 +985,6 @@ bool GetLine(const int line, uint16* buf, unsigned w, uint32 rot_x, uint32 rot_y
   {
    for(unsigned sub = 0; sub < 2; sub++)
    {
-    //printf("%d %d:%d %04x\n", FBDrawWhich, x, y, fill_data);
-    //printf("%lld\n", &fbyptr[x & fb_x_mask] - FB[!FBDrawWhich]);
     fbyptr[x & EraseParams.fb_x_mask] = EraseParams.fill_data;
     x++;
    }
@@ -1122,7 +1104,6 @@ MDFN_FASTCALL void Write_CheckDrawSlowdown(uint32 A, sscpu_timestamp_t time_thin
 
 MDFN_FASTCALL void Read_CheckDrawSlowdown(uint32 A, sscpu_timestamp_t time_thing)
 {
- //printf("%08x\n", A);
  if(!(A & 0x100000) && time_thing > LastRWTS && DrawingActive && (ss_horrible_hacks & HORRIBLEHACK_VDP1RWDRAWSLOWDOWN))
  {
   const int32 count = (A & 0x80000) ? 44 : 41;

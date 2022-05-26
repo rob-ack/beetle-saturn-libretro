@@ -633,13 +633,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	 DMA_Direction = (tmp >> 13) & 0x1;
 	 DMA_Gate = (tmp >> 14) & 0x1;
 
-#if 0
-	 if(!prev_execute && DMA_Execute)
-	 {
-	  printf("[SCSP] DMA Started; Memory Address: 0x%06x, Register Address: 0x%03x, Length: 0x%03x Direction: %u, Gate: %u\n",
-		DMEA << 1, DRGA << 1, DTLG << 1, DMA_Direction, DMA_Gate);
-	 }
-#endif
 	 RunDMA();
 	}
 	else

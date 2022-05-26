@@ -2225,26 +2225,17 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
     bool which = DMALevel_WATable[level] >> 31;
     uint32 index = DMALevel_WATable[level] & 0x7FFFFFFF;
 
-    if(index >= dwt_counts[which]) // || !dwt_ptrs[which][index].write_size)
-    {
-     //printf("bad watable %08x %zu %08x\n", DMALevel_WATable[level], dwt_counts[which], dwt_ptrs[which][index].write_size);
-     printf("bad watable %08x %zu\n", DMALevel_WATable[level], dwt_counts[which]);
-    }
-    else
+    if(index < dwt_counts[which]) // || !dwt_ptrs[which][index].write_size)
      d.WATable = dwt_ptrs[which] + index;
    }
 
-   if(DMALevel_ReadFunc[level] >= 3)
-    printf("bad readfunc: %02x\n", DMALevel_ReadFunc[level]);
-   else
+   if(DMALevel_ReadFunc[level] < 3)
     d.ReadFunc = rftab[DMALevel_ReadFunc[level]];
 
    if(DMALevel_TableReadFunc[level] == 0xFF)
     d.TableReadFunc = NULL;
    else if(DMALevel_TableReadFunc[level] < 3)
     d.TableReadFunc = rftab[DMALevel_TableReadFunc[level]];
-   else
-    printf("bad tablereadfunc: %02x\n", DMALevel_TableReadFunc[level]);
   }
   //
   //
@@ -2316,32 +2307,6 @@ uint32 SCU_GetRegister(const unsigned id, char* const special, const uint32 spec
 	 const unsigned v[4] = { (uint16)(ASR0 >> 16), (uint16)(ASR0 >> 0), (uint16)(ASR1 >> 16), (uint16)(ASR1 >> 0) };
 
 	 ret = v[id - SCU_GSREG_ASR0_CS0];
-
-	 if(special)
-	 {
-	  if(id == SCU_GSREG_ASR1_CS2)
-	  {
-	   trio_snprintf(special, special_len, "Width: %u-bit; Burst: len=%u; Ext wait: %s; Precharge delay: rd=%d; wr=%d; Seq read opt: %s",
-		((ret >> 0) & 1) ? 8 : 16,
-		(ret >> 2) & 0x3,
-		((ret >> 12) & 1) ? "On" : "Off",
-		(ret >> 13) & 1,
-		(ret >> 14) & 1,
-		((ret >> 15) & 1) ? "On" : "Off");
-	  }
-	  else
-	  {
-	   trio_snprintf(special, special_len, "Width: %u-bit; Norm wait: %u; Burst: len=%u, wait=%u; Ext wait: %s; Precharge delay: rd=%d; wr=%d; Seq read opt: %s",
-		((ret >> 0) & 1) ? 8 : 16,
-		(ret >> 4) & 0xF,
-		(ret >> 2) & 0x3,
-		(ret >> 8) & 0xF,
-		((ret >> 12) & 1) ? "On" : "Off",
-		(ret >> 13) & 1,
-		(ret >> 14) & 1,
-		((ret >> 15) & 1) ? "On" : "Off");
-	  }
-	 }
 	}
 	break;
 

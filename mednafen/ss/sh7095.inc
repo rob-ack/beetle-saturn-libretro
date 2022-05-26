@@ -3686,10 +3686,6 @@ INLINE uint32 SH7095::GetRegister(const unsigned id, char* const special, const 
 
   case GSREG_VCRC:
 	ret = VCRC;
-	if(special)
-	{
-	 trio_snprintf(special, special_len, "FIC: 0x%02x, FOC: 0x%02x", (ret >> 8) & 0x7F, ret & 0x7F);
-	}
 	break;
 
   case GSREG_VCRD:
@@ -3847,15 +3843,6 @@ INLINE uint32 SH7095::GetRegister(const unsigned id, char* const special, const 
   //
   case GSREG_CCR:
 	ret = CCR;
-	if(special)
-	{
-	 trio_snprintf(special, special_len, "CE: %d, ID: %d, OD: %d, TW: %d, WS: %d",
-		(bool)(CCR & CCR_CE),
-		(bool)(CCR & CCR_ID),
-		(bool)(CCR & CCR_OD),
-		(bool)(CCR & CCR_TW),
-		(CCR >> 6) & 0x3);
-	}
 	break;
 
   case GSREG_SBYCR:

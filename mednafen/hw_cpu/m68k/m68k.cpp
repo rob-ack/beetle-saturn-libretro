@@ -1192,7 +1192,6 @@ INLINE void M68K::Divide(uint16 divisor, const unsigned dr)
   if(ob)
   {
    oflow = true;
-   //puts("OVERFLOW");
    //break;
   }
  }

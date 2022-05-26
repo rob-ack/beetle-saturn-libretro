@@ -67,14 +67,6 @@ INLINE void SetExtLatch(sscpu_timestamp_t event_timestamp, bool status)
    //
    ExLatchPending = true;
    SS_SetEventNT(&events[SS_EVENT_VDP2], event_timestamp);
-#if 0
-   SS_SetEventNT(&events[SS_EVENT_VDP2], Update(event_timestamp));
-   //
-   LatchHV();
-   //
-   HVIsExLatched = true;
-   printf("ExLatch: %04x %04x\n", Latched_VCNT, Latched_HCNT);
-#endif
   }
  }
 }
