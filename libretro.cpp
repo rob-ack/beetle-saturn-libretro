@@ -739,7 +739,10 @@ void retro_run(void)
 
    input_poll_cb();
 
-   input_update( input_state_cb, libretro_supports_bitmasks );
+   if (libretro_supports_bitmasks)
+	   input_update_with_bitmasks( input_state_cb);
+   else
+	   input_update( input_state_cb);
 
    static int32 rects[MEDNAFEN_CORE_GEOMETRY_MAX_H];
    rects[0] = ~0;
@@ -1096,5 +1099,8 @@ void MDFN_DispMessage(const char *format, ...)
 void MDFN_MidSync(void)
 {
     input_poll_cb();
-    input_update( input_state_cb, libretro_supports_bitmasks);
+    if (libretro_supports_bitmasks)
+	    input_update_with_bitmasks( input_state_cb);
+    else
+	    input_update( input_state_cb);
 }

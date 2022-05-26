@@ -19,7 +19,8 @@ void input_set_deadzone_stick( int percent );
 void input_set_deadzone_trigger( int percent );
 void input_set_mouse_sensitivity( int percent );
 
-void input_update( retro_input_state_t input_state_cb, bool supports_bitmasks );
+void input_update( retro_input_state_t input_state_cb);
+void input_update_with_bitmasks( retro_input_state_t input_state_cb );
 
 // save state function for input
 int input_StateAction( StateMem* sm, const unsigned load, const bool data_only );
