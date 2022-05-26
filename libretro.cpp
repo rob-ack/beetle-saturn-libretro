@@ -556,7 +556,7 @@ bool retro_load_game(const struct retro_game_info *info)
 
    snprintf(tocbasepath, sizeof(tocbasepath), "%s" RETRO_SLASH "%s.toc", retro_cd_base_directory, retro_cd_base_name);
 
-   if (filestream_exists(tocbasepath))
+   if (!strstr(tocbasepath, "cdrom://") && filestream_exists(tocbasepath))
       snprintf(retro_cd_path, sizeof(retro_cd_path), "%s", tocbasepath);
    else
       snprintf(retro_cd_path, sizeof(retro_cd_path), "%s", info->path);
@@ -647,13 +647,10 @@ void retro_run(void)
    static int32 rects[MEDNAFEN_CORE_GEOMETRY_MAX_H];
    rects[0] = ~0;
 
-   static int16_t sound_buf[0x10000];
    EmulateSpecStruct spec;
    spec.surface = surf;
    spec.SoundRate = 44100;
-   spec.SoundBuf = sound_buf;
    spec.LineWidths = rects;
-   spec.SoundBufMaxSize = sizeof(sound_buf) / 2;
    spec.SoundVolume = 1.0;
    spec.soundmultiplier = 1.0;
    spec.SoundBufSize = 0;
@@ -945,16 +942,6 @@ void retro_cheat_reset(void)
 
 void retro_cheat_set(unsigned, bool, const char *)
 {}
-
-#ifdef _WIN32
-static void sanitize_path(std::string &path)
-{
-   size_t size = path.size();
-   for (size_t i = 0; i < size; i++)
-      if (path[i] == '/')
-         path[i] = '\\';
-}
-#endif
 
 // Use a simpler approach to make sure that things go right for libretro.
 const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)

@@ -317,12 +317,10 @@ static int WriteStateChunk(StateMem *st, const char *sname, SFORMAT *sf)
 	int32_t end_pos;
 
 	uint8_t sname_tmp[32];
+	size_t sname_len = strlen(sname);
 
 	memset(sname_tmp, 0, sizeof(sname_tmp));
-	strncpy((char *)sname_tmp, sname, 32);
-
-	if(strlen(sname) > 32)
-		log_cb( RETRO_LOG_WARN, "Section name is too long: %s\n", sname);
+        memcpy((char *)sname_tmp, sname, (sname_len < 32) ? sname_len : 32);
 
 	smem_write(st, sname_tmp, 32);
 

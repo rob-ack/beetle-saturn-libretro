@@ -379,15 +379,6 @@ struct EmulateSpecStruct
 	// Sound rate.  Set by driver side.
 	double SoundRate = 0;
 
-	// Pointer to sound buffer, set by the driver code, that the emulation code should render sound to.
-	// Guaranteed to be at least 500ms in length, but emulation code really shouldn't exceed 40ms or so.  Additionally, if emulation code
-	// generates >= 100ms, 
-	// DEPRECATED: Emulation code may set this pointer to a sound buffer internal to the emulation module.
-	int16 *SoundBuf = nullptr;
-
-	// Maximum size of the sound buffer, in frames.  Set by the driver code.
-	int32 SoundBufMaxSize = 0;
-
 	// Number of frames currently in internal sound buffer.  Set by the system emulation code, to be read by the driver code.
 	int32 SoundBufSize = 0;
 	int32 SoundBufSize_InternalProcessed = 0;	// Internal Mednafen use only.
