@@ -48,7 +48,6 @@ class M68K
  INLINE void SignalDTACKHalted(uint32 addr)
  {
   XPending |= XPENDING_MASK_DTACKHALTED;
-  DBG_Warning("[M68K] Halting due to DTACK absence: address=0x%08x\n", addr);
  }
 
  INLINE void SignalAddressError(uint32 addr, uint8 type)
@@ -56,7 +55,6 @@ class M68K
   if(XPending & (XPENDING_MASK_ADDRESS | XPENDING_MASK_BUS | XPENDING_MASK_RESET))
   {
    XPending |= XPENDING_MASK_ERRORHALTED;
-   DBG_Warning("[M68K] Halting due to address error/bus error during address eror/bus error/reset exception handling: address=0x%08x type=0x%01x\n", addr, type);
   }
 
   XPending |= XPENDING_MASK_ADDRESS;
@@ -474,8 +472,6 @@ static uint8 TAS_Callback(uint8 data)
  //
  //
  //
- void (*DBG_Warning)(const char* format, ...) noexcept MDFN_FORMATSTR(gnu_printf, 1, 2);
- void (*DBG_Verbose)(const char* format, ...) noexcept MDFN_FORMATSTR(gnu_printf, 1, 2);
  //
  //
  //

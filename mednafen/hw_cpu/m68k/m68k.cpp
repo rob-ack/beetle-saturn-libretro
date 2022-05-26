@@ -51,24 +51,14 @@
 
 #pragma GCC optimize ("no-crossjumping,no-gcse")
 
-static MDFN_FASTCALL void Dummy_BusRESET(bool state)
-{
-
-}
-
-static void DummyDBG(const char* format, ...) noexcept
-{
-
-}
+static MDFN_FASTCALL void Dummy_BusRESET(bool state) { }
 
 M68K::M68K(const bool rev_e) : Revision_E(rev_e),
 	       BusReadInstr(nullptr), BusRead8(nullptr), BusRead16(nullptr),
 	       BusWrite8(nullptr), BusWrite16(nullptr),
 	       BusRMW(nullptr),
 	       BusIntAck(nullptr),
-	       BusRESET(Dummy_BusRESET),
-	       DBG_Warning(DummyDBG),
-	       DBG_Verbose(DummyDBG)
+	       BusRESET(Dummy_BusRESET)
 {
  timestamp = 0;
  XPending = 0;
@@ -697,17 +687,6 @@ void NO_INLINE M68K::Exception(unsigned which, unsigned vecnum)
  }
 
  PC = Read<uint32>(vecnum << 2);
-
- //
- {
-  auto dbgw = DBG_Verbose;
-
-  if(which != EXCEPTION_INT || vecnum == VECNUM_UNINI_INT || vecnum == VECNUM_SPURIOUS_INT)
-   dbgw = DBG_Warning;
-
-  dbgw("[M68K] Exception %u(vec=%u) @PC=0x%08x SR=0x%04x ---> PC=0x%08x, SR=0x%04x\n", which, vecnum, PC_save, SR_save, PC, GetSR());
- }
- //
 
  // TODO: Prefetch
  ReadOp();

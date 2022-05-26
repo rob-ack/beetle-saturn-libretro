@@ -57,9 +57,7 @@ static INLINE void SCSP_SoundIntChanged(SS_SCSP* s, unsigned level)
 
 static INLINE void SCSP_MainIntChanged(SS_SCSP* s, bool state)
 {
- #ifndef MDFN_SSFPLAY_COMPILE
  SCU_SetInt(SCU_INT_SCSP, state);
- #endif
 }
 
 #include "scsp.inc"
@@ -101,11 +99,6 @@ void SOUND_Init(void)
 
  SoundCPU.BusIntAck = SoundCPU_BusIntAck;
  SoundCPU.BusRESET = SoundCPU_BusRESET;
-
- #ifndef MDFN_SSFPLAY_COMPILE
- SoundCPU.DBG_Warning = SS_DBG_Wrap<SS_DBG_WARNING | SS_DBG_M68K>;
- SoundCPU.DBG_Verbose = SS_DBG_Wrap<SS_DBG_M68K>;
- #endif
 
  SS_SetPhysMemMap(0x05A00000, 0x05A7FFFF, SCSP.GetRAMPtr(), 0x80000, true);
  // TODO: MEM4B: SS_SetPhysMemMap(0x05A00000, 0x05AFFFFF, SCSP.GetRAMPtr(), 0x40000, true);
@@ -395,11 +388,8 @@ static MDFN_FASTCALL unsigned SoundCPU_BusIntAck(uint8 level)
 
 static MDFN_FASTCALL void SoundCPU_BusRESET(bool state)
 {
- //SS_DBG(SS_DBG_WARNING, "[M68K] RESET: %d @ time %d\n", state, SoundCPU.timestamp);
  if(state)
- {
   SoundCPU.Reset(false);
- }
 }
 
 uint32 SOUND_GetSCSPRegister(const unsigned id, char* const special, const uint32 special_len)
