@@ -33,52 +33,6 @@
  ***/
 
 /*
- * Mapping of frame bytes to P/Q Vectors
- */
-
-int PToByteIndex(int p, int i)
-{  return 12 + p + i*86;
-}
-
-void ByteIndexToP(int b, int *p, int *i)
-{  *p = (b-12)%86;
-   *i = (b-12)/86;
-}
-
-int QToByteIndex(int q, int i)
-{  int offset = 12 + (q & 1);
-
-   if(i == 43) return 2248+q;
-   if(i == 44) return 2300+q;
-
-   q&=~1;
-   return offset + (q*43 + i*88) % 2236;
-}
-
-void ByteIndexToQ(int b, int *q, int *i)
-{ int x,y,offset;
- 
-  if(b >= 2300) 
-  {  *i = 44;
-     *q = (b-2300);
-     return;
-  }
-
-  if(b >= 2248) 
-  {  *i = 43;
-     *q = (b-2248);
-     return;
-  }
-
-  offset = b&1;
-  b  = (b-12)/2;
-  x  = b/43;
-  y  = (b-(x*43))%26;  
-  *i = b-(x*43);
-  *q = 2*((x+26-y)%26)+offset;
-}
-
-/*
  * There are 86 vectors of P-parity, yielding a RS(26,24) code.
  */
 
@@ -184,28 +138,6 @@ void AndQVector(unsigned char *frame, unsigned char data, int n)
 
    frame[2248 + n] &= data;
    frame[2300 + n] &= data;
-}
-
-/***
- *** C2 error counting
- ***/
-
-int CountC2Errors(unsigned char *frame)
-{  int i,count = 0;
-   frame += 2352;
-
-   for(i=0; i<294; i++, frame++)
-   {  if(*frame & 0x01) count++;
-      if(*frame & 0x02) count++;
-      if(*frame & 0x04) count++;
-      if(*frame & 0x08) count++;
-      if(*frame & 0x10) count++;
-      if(*frame & 0x20) count++;
-      if(*frame & 0x40) count++;
-      if(*frame & 0x80) count++;
-   }
-
-   return count;
 }
 
 /***
@@ -466,11 +398,9 @@ int DecodePQ(ReedSolomonTables *rt, unsigned char *data, int padding,
     }
 
    /*** Convert syndrome to index form, check for nonzero condition. */
-#if 1
    for(i=0; i<NROOTS; i++)
      if(syndrome[i])
        return -2;
-#endif
 
    return corrected;
 }
