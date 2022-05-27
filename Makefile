@@ -4,11 +4,11 @@ HAVE_RUST = 0
 HAVE_OPENGL = 0
 HAVE_JIT = 0
 HAVE_CHD = 1
+HAVE_CDROM = 0
 
 IS_64BIT = 1
 
 CORE_DIR := .
-HAVE_GRIFFIN = 0
 
 SPACE :=
 SPACE := $(SPACE) $(SPACE)
@@ -19,15 +19,15 @@ filter_out2 = $(call filter_out1,$(call filter_out1,$1))
 
 ifeq ($(platform),)
    platform = unix
-   ifeq ($(shell uname -a),)
+   ifeq ($(shell uname -s),)
       platform = win
-   else ifneq ($(findstring Darwin,$(shell uname -a)),)
+   else ifneq ($(findstring Darwin,$(shell uname -s)),)
       platform = osx
       arch = intel
       ifeq ($(shell uname -p),powerpc)
          arch = ppc
       endif
-   else ifneq ($(findstring MINGW,$(shell uname -a)),)
+   else ifneq ($(findstring MINGW,$(shell uname -s)),)
       platform = win
    endif
 else ifneq (,$(findstring armv,$(platform)))
@@ -35,7 +35,7 @@ else ifneq (,$(findstring armv,$(platform)))
 endif
 
 ifneq ($(platform), osx)
-   ifeq ($(findstring Haiku,$(shell uname -a)),)
+   ifeq ($(findstring Haiku,$(shell uname -s)),)
       PTHREAD_FLAGS = -pthread
    endif
 endif
@@ -48,7 +48,6 @@ LIBRETRO_INSTALL_DIR := libretro
 NEED_CD = 1
 NEED_TREMOR = 1
 NEED_BPP = 32
-WANT_NEW_API = 1
 NEED_DEINTERLACER = 1
 NEED_THREADING = 1
 CORE_DEFINE := -DWANT_SS_EMU
@@ -76,7 +75,7 @@ ifneq (,$(findstring unix,$(platform)))
    PTHREAD_FLAGS = -lpthread
    endif
    LDFLAGS += $(PTHREAD_FLAGS)
-   FLAGS += $(PTHREAD_FLAGS) -DHAVE_MKDIR
+   FLAGS += $(PTHREAD_FLAGS)
    ifeq ($(HAVE_OPENGL),1)
       ifneq (,$(findstring gles,$(platform)))
          GLES = 1
@@ -85,6 +84,9 @@ ifneq (,$(findstring unix,$(platform)))
          GL_LIB := -lGL
       endif
    endif
+   ifneq ($(findstring Linux,$(shell uname -s)),)
+      HAVE_CDROM = 1
+   endif
 
 # OS X
 else ifeq ($(platform), osx)
@@ -92,7 +94,7 @@ else ifeq ($(platform), osx)
    fpic := -fPIC
    SHARED := -dynamiclib
    LDFLAGS += $(PTHREAD_FLAGS)
-   FLAGS += $(PTHREAD_FLAGS) -DHAVE_MKDIR
+   FLAGS += $(PTHREAD_FLAGS)
    ifeq ($(arch),ppc)
       ENDIANNESS_DEFINES := -DMSB_FIRST
       OLD_GCC := 1
@@ -105,6 +107,13 @@ else ifeq ($(platform), osx)
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -framework OpenGL
    endif
+   ifeq ($(CROSS_COMPILE),1)
+	TARGET_RULE   = -target $(LIBRETRO_APPLE_PLATFORM) -isysroot $(LIBRETRO_APPLE_ISYSROOT)
+	CFLAGS   += $(TARGET_RULE)
+	CPPFLAGS += $(TARGET_RULE)
+	CXXFLAGS += $(TARGET_RULE)
+	LDFLAGS  += $(TARGET_RULE)
+   endif
 
 # iOS
 else ifneq (,$(findstring ios,$(platform)))
@@ -112,15 +121,20 @@ else ifneq (,$(findstring ios,$(platform)))
    fpic := -fPIC
    SHARED := -dynamiclib
    LDFLAGS += $(PTHREAD_FLAGS)
-   FLAGS += $(PTHREAD_FLAGS)
+   FLAGS += $(PTHREAD_FLAGS)  -DHAVE_UNISTD_H
    ifeq ($(IOSSDK),)
       IOSSDK := $(shell xcrun -sdk iphoneos -show-sdk-path)
    endif
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -framework OpenGLES
    endif
-   CC = cc -arch armv7 -isysroot $(IOSSDK)
-   CXX = c++ -arch armv7 -isysroot $(IOSSDK)
+   ifeq ($(platform), ios-arm64)
+     CC = cc -arch arm64 -isysroot $(IOSSDK)
+     CXX = c++ -arch arm64 -isysroot $(IOSSDK)
+   else
+     CC = cc -arch armv7 -isysroot $(IOSSDK)
+     CXX = c++ -arch armv7 -isysroot $(IOSSDK)
+   endif
    IPHONEMINVER :=
    ifeq ($(platform),$(filter $(platform),ios9 ios-arm64))
       IPHONEMINVER = -miphoneos-version-min=8.0
@@ -132,14 +146,24 @@ else ifneq (,$(findstring ios,$(platform)))
    CC += $(IPHONEMINVER)
    CXX += $(IPHONEMINVER)
 
+# tvOS
+else ifeq ($(platform), tvos-arm64)
+   TARGET := $(TARGET_NAME)_libretro_tvos.dylib
+   fpic := -fPIC
+   SHARED := -dynamiclib
+   FLAGS += -DHAVE_UNISTD_H
+
+ifeq ($(IOSSDK),)
+   IOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
+endif
+
 # QNX
 else ifeq ($(platform), qnx)
    TARGET := $(TARGET_NAME)_libretro_$(platform).so
    fpic := -fPIC
    SHARED := -lcpp -lm -shared -Wl,--no-undefined -Wl,--version-script=link.T
    #LDFLAGS += $(PTHREAD_FLAGS)
-   #FLAGS += $(PTHREAD_FLAGS) -DHAVE_MKDIR
-   FLAGS += -DHAVE_MKDIR
+   #FLAGS += $(PTHREAD_FLAGS)
    CC = qcc -Vgcc_ntoarmv7le
    CXX = QCC -Vgcc_ntoarmv7le_cpp
    AR = QCC -Vgcc_ntoarmv7le
@@ -148,30 +172,6 @@ else ifeq ($(platform), qnx)
       GL_LIB := -lGLESv2
    endif
 
-# PS3
-else ifeq ($(platform), ps3)
-   TARGET := $(TARGET_NAME)_libretro_$(platform).a
-   CC = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-gcc.exe
-   CXX = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-g++.exe
-   AR = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-ar.exe
-   ENDIANNESS_DEFINES := -DMSB_FIRST
-   OLD_GCC := 1
-   FLAGS += -DHAVE_MKDIR -DARCH_POWERPC_ALTIVEC
-   STATIC_LINKING = 1
-
-# sncps3
-else ifeq ($(platform), sncps3)
-   TARGET := $(TARGET_NAME)_libretro_ps3.a
-   CC = $(CELL_SDK)/host-win32/sn/bin/ps3ppusnc.exe
-   CXX = $(CELL_SDK)/host-win32/sn/bin/ps3ppusnc.exe
-   AR = $(CELL_SDK)/host-win32/sn/bin/ps3snarl.exe
-   ENDIANNESS_DEFINES := -DMSB_FIRST
-   CXXFLAGS += -Xc+=exceptions
-   OLD_GCC := 1
-   NO_GCC := 1
-   FLAGS += -DHAVE_MKDIR -DARCH_POWERPC_ALTIVEC
-   STATIC_LINKING = 1
-
 # Lightweight PS3 Homebrew SDK
 else ifeq ($(platform), psl1ght)
    TARGET := $(TARGET_NAME)_libretro_$(platform).a
@@ -179,7 +179,6 @@ else ifeq ($(platform), psl1ght)
    CXX = $(PS3DEV)/ppu/bin/ppu-g++$(EXE_EXT)
    AR = $(PS3DEV)/ppu/bin/ppu-ar$(EXE_EXT)
    ENDIANNESS_DEFINES := -DMSB_FIRST
-   FLAGS += -DHAVE_MKDIR 
    STATIC_LINKING = 1
 
 # PSP
@@ -189,7 +188,6 @@ else ifeq ($(platform), psp1)
    CXX = psp-g++$(EXE_EXT)
    AR = psp-ar$(EXE_EXT)
    FLAGS += -DPSP -G0
-   FLAGS += -DHAVE_MKDIR
    STATIC_LINKING = 1
    EXTRA_INCLUDES := -I$(shell psp-config --pspsdk-path)/include
 
@@ -200,7 +198,6 @@ else ifeq ($(platform), vita)
    CXX = arm-vita-eabi-g++$(EXE_EXT)
    AR = arm-vita-eabi-ar$(EXE_EXT)
    FLAGS += -DVITA
-   FLAGS += -DHAVE_MKDIR
    STATIC_LINKING = 1
 
 # Xbox 360
@@ -211,7 +208,6 @@ else ifeq ($(platform), xenon)
    AR = xenon-ar$(EXE_EXT)
    ENDIANNESS_DEFINES += -D__LIBXENON__ -m32 -D__ppc__ -DMSB_FIRST 
    LIBS := $(PTHREAD_FLAGS)
-   FLAGS += -DHAVE_MKDIR
    STATIC_LINKING = 1
 
 # Nintendo Game Cube / Nintendo Wii
@@ -228,7 +224,6 @@ else ifneq (,$(filter $(platform),ngc wii))
    CXX = $(DEVKITPPC)/bin/powerpc-eabi-g++$(EXE_EXT)
    AR = $(DEVKITPPC)/bin/powerpc-eabi-ar$(EXE_EXT)
    EXTRA_INCLUDES := -I$(DEVKITPRO)/libogc/include
-   FLAGS += -DHAVE_MKDIR
    STATIC_LINKING = 1
 
 # GCW0
@@ -240,7 +235,7 @@ else ifeq ($(platform), gcw0)
    fpic := -fPIC
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
    LDFLAGS += $(PTHREAD_FLAGS)
-   FLAGS += $(PTHREAD_FLAGS) -DHAVE_MKDIR
+   FLAGS += $(PTHREAD_FLAGS)
    FLAGS += -ffast-math -march=mips32 -mtune=mips32r2 -mhard-float
    GLES = 1
    GL_LIB := -lGLESv2
@@ -249,7 +244,7 @@ else ifeq ($(platform), gcw0)
 else ifeq ($(platform), emscripten)
    TARGET := $(TARGET_NAME)_libretro_$(platform).bc
    STATIC_LINKING = 1
-   FLAGS += $(PTHREAD_FLAGS) -DHAVE_MKDIR -Dretro_fopen=gg_retro_fopen\
+   FLAGS += $(PTHREAD_FLAGS) -Dretro_fopen=gg_retro_fopen\
                  -Dmain=gg_main\
                  -Dretro_fclose=gg_retro_fclose\
                  -Dretro_fseek=gg_retro_fseek\
@@ -322,7 +317,7 @@ endif
 else ifneq (,$(findstring windows_msvc2017,$(platform)))
 
     NO_GCC := 1
-    FLAGS += -DHAVE__MKDIR -DNOMINMAX -D__PIC__
+    FLAGS += -DNOMINMAX -D__PIC__
 
 	PlatformSuffix = $(subst windows_msvc2017_,,$(platform))
 	ifneq (,$(findstring desktop,$(PlatformSuffix)))
@@ -421,15 +416,15 @@ else ifneq (,$(findstring windows_msvc2017,$(platform)))
 # Windows
 else
    TARGET := $(TARGET_NAME)_libretro.dll
-   CC = gcc
-   CXX = g++
+   CC ?= gcc
+   CXX ?= g++
    IS_X86 = 1
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
    LDFLAGS += -static-libgcc -static-libstdc++ -lwinmm
-   FLAGS += -DHAVE__MKDIR
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -lopengl32
    endif
+	HAVE_CDROM = 1
 
 endif
 

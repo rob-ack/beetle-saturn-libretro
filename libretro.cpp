@@ -45,12 +45,12 @@
 
 struct retro_perf_callback perf_cb;
 retro_get_cpu_features_t perf_get_cpu_features_cb = NULL;
-retro_log_printf_t log_cb;
-static retro_audio_sample_t audio_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
-static retro_environment_t environ_cb;
+retro_log_printf_t log_cb                         = NULL;
+static retro_audio_sample_t audio_cb              = NULL;
+static retro_audio_sample_batch_t audio_batch_cb  = NULL;
+static retro_input_poll_t input_poll_cb           = NULL;
+static retro_input_state_t input_state_cb         = NULL;
+static retro_environment_t environ_cb             = NULL;
 
 static unsigned frame_count = 0;
 static unsigned internal_frame_count = 0;
