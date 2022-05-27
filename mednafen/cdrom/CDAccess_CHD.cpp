@@ -66,7 +66,6 @@ bool CDAccess_CHD::Load(const std::string &path, bool image_memcache)
     return false;
   }
 
-#if 0
   if (image_memcache)
   {
     if ((err = chd_precache(chd)) != CHDERR_NONE)
@@ -75,7 +74,6 @@ bool CDAccess_CHD::Load(const std::string &path, bool image_memcache)
       return false;
     }
   }
-#endif
 
   /* allocate storage for sector reads */
   const chd_header *head = chd_get_header(chd);
