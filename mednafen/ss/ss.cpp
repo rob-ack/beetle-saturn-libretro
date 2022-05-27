@@ -778,7 +778,6 @@ void Emulate(EmulateSpecStruct* espec_arg)
    }
    catch(std::exception& e)
    {
-    MDFN_DispMessage("%s", e.what());
     BackupRAM_SaveDelay = (int64)60 * (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));  // 60 second retry delay.
    }
   }
@@ -798,7 +797,6 @@ void Emulate(EmulateSpecStruct* espec_arg)
    }
    catch(std::exception& e)
    {
-    MDFN_DispMessage("%s", e.what());
     CartNV_SaveDelay = (int64)60 * (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));  // 60 second retry delay.
    }
   }

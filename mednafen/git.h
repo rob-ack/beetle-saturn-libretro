@@ -7,7 +7,7 @@
 #include <map>
 #include <libretro.h>
 
-#include "video.h"
+#include "video/surface.h"
 
 typedef struct
 {

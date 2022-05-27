@@ -548,7 +548,7 @@ static bool MDFNI_LoadGame( const char *name )
                if ( InitCommon( cpucache_emumode,
                     horrible_hacks, cart_type, region ) )
                {
-                  MDFN_LoadGameCheats(NULL);
+                  MDFN_LoadGameCheats();
                   MDFNMP_InstallReadPatches();
 
                   return true;
@@ -587,7 +587,7 @@ static bool MDFNI_LoadGame( const char *name )
    // Initialise with safe parameters
    InitCommon( cpucache_emumode, horrible_hacks, cart_type, region );
 
-   MDFN_LoadGameCheats(NULL);
+   MDFN_LoadGameCheats();
    MDFNMP_InstallReadPatches();
 
    return true;
@@ -626,7 +626,7 @@ bool retro_load_game(const struct retro_game_info *info)
    if (MDFNI_LoadGame(retro_cd_path) == false)
       return false;
 
-   MDFN_LoadGameCheats(NULL);
+   MDFN_LoadGameCheats();
    MDFNMP_InstallReadPatches();
 
    alloc_surface();
@@ -670,7 +670,7 @@ void retro_unload_game(void)
    if(!MDFNGameInfo)
       return;
 
-   MDFN_FlushGameCheats(0);
+   MDFN_FlushGameCheats();
 
    CloseGame();
 
@@ -1041,36 +1041,6 @@ const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)
    }
 
    return fullpath;
-}
-
-void MDFND_DispMessage(unsigned char *str)
-{
-   const char *strc = (const char*)str;
-   struct retro_message msg =
-   {
-      strc,
-      180
-   };
-
-   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
-}
-
-void MDFN_DispMessage(const char *format, ...)
-{
-   char *str = new char[4096];
-   struct retro_message msg;
-   va_list ap;
-   va_start(ap,format);
-   const char *strc = NULL;
-
-   vsnprintf(str, 4096, format, ap);
-   va_end(ap);
-   strc = str;
-
-   msg.frames = 180;
-   msg.msg = strc;
-
-   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
 }
 
 void MDFN_MidSync(void)
