@@ -19,7 +19,7 @@ endif
 include $(CORE_DIR)/Makefile.common
 
 COREFLAGS := -funroll-loops $(INCFLAGS) -D__LIBRETRO__ -D_LOW_ACCURACY_ -DINLINE="inline" $(FLAGS)
-COREFLAGS += -DWANT_SATURN_EMU -DSIZEOF_DOUBLE=8
+COREFLAGS += -DWANT_SATURN_EMU
 
 GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"
 ifneq ($(GIT_VERSION)," unknown")

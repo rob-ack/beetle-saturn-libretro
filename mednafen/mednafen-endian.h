@@ -6,18 +6,10 @@
 #include <retro_inline.h>
 #include "mednafen-types.h"
 
-#if 0
-#if MDFN_GCC_VERSION >= MDFN_MAKE_GCCV(4,7,0)
-#define MDFN_ASSUME_ALIGNED(p, align) ((decltype(p))__builtin_assume_aligned((p), (align)))
-#else
-#define MDFN_ASSUME_ALIGNED(p, align) (p)
-#endif
-#else
 #ifndef _MSC_VER
 #define MDFN_ASSUME_ALIGNED(p, align) ((decltype(p))__builtin_assume_aligned((p), (align)))
 #else
 #define MDFN_ASSUME_ALIGNED(p, align) p
-#endif
 #endif
 
 #ifdef MSB_FIRST
@@ -237,10 +229,10 @@ static INLINE uintptr_t neX_ptr_be(uintptr_t const base, const size_t byte_offse
 template<typename T, typename X>
 static INLINE uintptr_t neX_ptr_le(uintptr_t const base, const size_t byte_offset)
 {
-#ifdef LSB_FIRST
- return base + (byte_offset &~ (sizeof(T) - 1));
-#else
+#ifdef MSB_FIRST
  return base + (((byte_offset &~ (sizeof(T) - 1)) ^ (sizeof(X) - std::min<size_t>(sizeof(X), sizeof(T)))));
+#else
+ return base + (byte_offset &~ (sizeof(T) - 1));
 #endif
 }
 

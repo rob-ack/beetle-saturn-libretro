@@ -31,10 +31,8 @@
 
 #ifdef MSB_FIRST
  #define OGG_BYTE_ORDER OGG_BIG_ENDIAN
-#elif defined(LSB_FIRST)
- #define OGG_BYTE_ORDER OGG_LITTLE_ENDIAN
 #else
- #error "ERROR"
+ #define OGG_BYTE_ORDER OGG_LITTLE_ENDIAN
 #endif
 
 /* make it easy on the folks that want to compile the libs with a

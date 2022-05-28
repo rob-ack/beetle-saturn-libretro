@@ -1741,21 +1741,6 @@ static void DSP_Reset(bool powering_up)
 MDFN_COLD void DSP_Init(void)
 {
  DSP.LastTS = 0;
-
- for(auto* f : DSP_GenFuncTable)
-  assert((uintptr_t)f == DSP_INSTR_BASE_UIPT + ((uintptr_t)(DSP_INSTR_RECOVER_TCAST)(uint32)((uintptr_t)f - DSP_INSTR_BASE_UIPT)));
-
- for(auto* f : DSP_DMAFuncTable)
-  assert((uintptr_t)f == DSP_INSTR_BASE_UIPT + ((uintptr_t)(DSP_INSTR_RECOVER_TCAST)(uint32)((uintptr_t)f - DSP_INSTR_BASE_UIPT)));
-
- for(auto* f : DSP_MVIFuncTable)
-  assert((uintptr_t)f == DSP_INSTR_BASE_UIPT + ((uintptr_t)(DSP_INSTR_RECOVER_TCAST)(uint32)((uintptr_t)f - DSP_INSTR_BASE_UIPT)));
-
- for(auto* f : DSP_JMPFuncTable)
-  assert((uintptr_t)f == DSP_INSTR_BASE_UIPT + ((uintptr_t)(DSP_INSTR_RECOVER_TCAST)(uint32)((uintptr_t)f - DSP_INSTR_BASE_UIPT)));
-
- for(auto* f : DSP_MiscFuncTable)
-  assert((uintptr_t)f == DSP_INSTR_BASE_UIPT + ((uintptr_t)(DSP_INSTR_RECOVER_TCAST)(uint32)((uintptr_t)f - DSP_INSTR_BASE_UIPT)));
 }
 
 void DSP_FinishPRAMDMA(void)

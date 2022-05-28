@@ -19,12 +19,12 @@
 ** 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-#if (defined(__x86_64__) && defined(__code_model_small__) && !defined(__PIC__) && !defined(__pic__)) || SIZEOF_VOID_P <= 4
- #define DSP_INSTR_BASE_UIPT 0
- #define DSP_INSTR_RECOVER_TCAST uint32
-#else
+#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(__arm64__) || defined(__ppc64__) || defined(__PPC64__) || defined(__ppce64le__)
  #define DSP_INSTR_BASE_UIPT ((uintptr_t)DSP_Init)
  #define DSP_INSTR_RECOVER_TCAST int32
+#else
+ #define DSP_INSTR_BASE_UIPT 0
+ #define DSP_INSTR_RECOVER_TCAST uint32
 #endif
 
 // See loop in "SCU_UpdateDSP()" in scu.inc, and END/ENDI handling in scu_dsp_misc.cpp

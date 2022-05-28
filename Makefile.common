@@ -17,20 +17,12 @@ ZLIB_SOURCES_C := $(DEPS_DIR)/zlib/adler32.c \
 	     $(DEPS_DIR)/zlib/inflate.c \
 	     $(DEPS_DIR)/zlib/inftrees.c
 
-FLAGS += -DLSB_FIRST
-
 ifeq ($(NEED_THREADING), 1)
    FLAGS += -DWANT_THREADING -DHAVE_THREADS
 endif
 
 ifeq ($(NEED_DEINTERLACER), 1)
    FLAGS += -DNEED_DEINTERLACER
-endif
-
-ifeq ($(IS_64BIT), 1)
-FLAGS += -DSIZEOF_VOID_P=8
-else
-FLAGS += -DSIZEOF_VOID_P=4
 endif
 
 ifeq ($(IS_X86), 1)
