@@ -108,8 +108,6 @@ SOURCES_CXX += \
 
 SOURCES_CXX += $(MEDNAFEN_DIR)/hw_cpu/m68k/m68k.cpp
 
-SOURCES_C += $(CORE_DIR)/libretro_cbs.c
-
 ifeq ($(NEED_TREMOR), 1)
    SOURCES_C += $(wildcard $(MEDNAFEN_DIR)/tremor/*.c)
 endif

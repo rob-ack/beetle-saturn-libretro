@@ -24,7 +24,6 @@
 #include "mednafen/ss/smpc.h"
 #include "mednafen/ss/sound.h"
 
-#include "libretro_cbs.h"
 #include "libretro_core_options.h"
 #include "libretro_settings.h"
 #include "input.h"
@@ -51,6 +50,7 @@ static retro_audio_sample_batch_t audio_batch_cb  = NULL;
 static retro_input_poll_t input_poll_cb           = NULL;
 static retro_input_state_t input_state_cb         = NULL;
 static retro_environment_t environ_cb             = NULL;
+static retro_video_refresh_t video_cb             = NULL;
 
 static unsigned frame_count = 0;
 static unsigned internal_frame_count = 0;
