@@ -1,9 +1,9 @@
 #include "../mednafen.h"
 #include "../general.h"
 #include "../state.h"
-#include "../driver.h"
 
 #include "Deinterlacer.h"
+
 Deinterlacer::Deinterlacer() : FieldBuffer(NULL), StateValid(false), DeintType(DEINT_WEAVE)
 {
  PrevDRect.x = 0;

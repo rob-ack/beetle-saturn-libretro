@@ -15,14 +15,6 @@ typedef struct
  const char *description; // Example "iNES Format ROM Image"
 } FileExtensionSpecStruct;
 
-enum
-{
- MDFN_ROTATE0 = 0,
- MDFN_ROTATE90,
- MDFN_ROTATE180,
- MDFN_ROTATE270
-};
-
 typedef enum
 {
  VIDSYS_NONE, // Can be used internally in system emulation code, but it is an error condition to let it continue to be
@@ -32,13 +24,6 @@ typedef enum
  VIDSYS_NTSC,
  VIDSYS_SECAM
 } VideoSystems;
-
-typedef enum
-{
- GMT_NONE = 0,
- GMT_ARCADE,	// VS Unisystem, PC-10...
- GMT_PLAYER	// Music player(NSF, HES, GSF)
-} GameMediumTypes;
 
 #include "state.h"
 #include "settings-common.h"
@@ -301,27 +286,6 @@ enum
 {
  MDFN_MSC_RESET = 0x01,
  MDFN_MSC_POWER = 0x02,
-
- MDFN_MSC_INSERT_COIN = 0x07,
-
- // If we ever support arcade systems, we'll abstract DIP switches differently...maybe.
- MDFN_MSC_TOGGLE_DIP0 = 0x10,
- MDFN_MSC_TOGGLE_DIP1,
- MDFN_MSC_TOGGLE_DIP2,
- MDFN_MSC_TOGGLE_DIP3,
- MDFN_MSC_TOGGLE_DIP4,
- MDFN_MSC_TOGGLE_DIP5,
- MDFN_MSC_TOGGLE_DIP6,
- MDFN_MSC_TOGGLE_DIP7,
- MDFN_MSC_TOGGLE_DIP8,
- MDFN_MSC_TOGGLE_DIP9,
- MDFN_MSC_TOGGLE_DIP10,
- MDFN_MSC_TOGGLE_DIP11,
- MDFN_MSC_TOGGLE_DIP12,
- MDFN_MSC_TOGGLE_DIP13,
- MDFN_MSC_TOGGLE_DIP14,
- MDFN_MSC_TOGGLE_DIP15,
-
  MDFN_MSC__LAST = 0x3F	// WARNING: Increasing(or having the enum'd value of a command greater than this :b) this will necessitate a change to the netplay protocol.
 };
 
@@ -331,12 +295,6 @@ struct EmulateSpecStruct
 	// Height must be >= to the "fb_height" specified in the MDFNGI struct for the emulated system.
 	// The framebuffer pointed to by surface->pixels is written to by the system emulation code.
 	MDFN_Surface* surface = nullptr;
-
-	// Will be set to true if the video pixel format has changed since the last call to Emulate(), false otherwise.
-	// Will be set to true on the first call to the Emulate() function/method
-	//
-	// Driver-side can set it to true if it has changed the custom palette.
-	bool VideoFormatChanged = false;
 
 	// Set by the system emulation code every frame, to denote the horizontal and vertical offsets of the image, and the size
 	// of the image.  If the emulated system sets the elements of LineWidths, then the width(w) of this structure
@@ -349,17 +307,6 @@ struct EmulateSpecStruct
 	// you can ignore this.  If you do wish to use this, you must set all elements every frame.
 	int32 *LineWidths = nullptr;
 
-	// Pointer to an array of uint8, 3 * CustomPaletteEntries.
-	// CustomPalette must be NULL and CustomPaletteEntries mujst be 0 if no custom palette is specified/available;
-	// otherwise, CustomPalette must be non-NULL and CustomPaletteEntries must be equal to a non-zero "num_entries" member of a CustomPalette_Spec
-	// entry of MDFNGI::CPInfo.
-	//
-	// Set and used internally if driver-side code hasn't specified a non-NULL value for CustomPalette.  If driver side uses it, driver side should
-	// set VideoFormatChanged to true whenever the custom palette changes.
-	//
-	uint8 *CustomPalette = nullptr;
-	uint32 CustomPaletteNumEntries = 0;
-
 	// Set(optionally) by emulation code.  If InterlaceOn is true, then assume field height is 1/2 DisplayRect.h, and
 	// only every other line in surface (with the start line defined by InterlacedField) has valid data
 	// (it's up to internal Mednafen code to deinterlace it).
@@ -369,56 +316,14 @@ struct EmulateSpecStruct
 	// Skip rendering this frame if true.  Set by the driver code.
 	int skip = false;
 
-	//
-	// If sound is disabled, the driver code must set SoundRate to false, SoundBuf to NULL, SoundBufMaxSize to 0.
-
-        // Will be set to true if the sound format(only rate for now, at least) has changed since the last call to Emulate(), false otherwise.
-        // Will be set to true on the first call to the Emulate() function/method
-	bool SoundFormatChanged = false;
-
-	// Sound rate.  Set by driver side.
-	double SoundRate = 0;
-
 	// Number of frames currently in internal sound buffer.  Set by the system emulation code, to be read by the driver code.
 	int32 SoundBufSize = 0;
-	int32 SoundBufSize_InternalProcessed = 0;	// Internal Mednafen use only.
-	int32 SoundBufSize_DriverProcessed = 0;		// Driver side(frontend) use only.
 
 	// Number of cycles that this frame consumed, using MDFNGI::MasterClock as a time base.
 	// Set by emulation code.
 	// MasterCycles value at last MidSync(), 0 if mid sync isn't implemented for the emulation module in use.
 	int64 MasterCycles = 0;
-	int64 MasterCycles_InternalProcessed = 0;	// Internal Mednafen use only.
-	int64 MasterCycles_DriverProcessed = 0;		// Driver side(frontend) use only.
-
-	// Current sound volume(0.000...<=volume<=1.000...).  If, after calling Emulate(), it is still != 1, Mednafen will handle it internally.
-	// Emulation modules can handle volume themselves if they like, for speed reasons.  If they do, afterwards, they should set its value to 1.
-	double SoundVolume = 1.0;
-
-	// Current sound speed multiplier.  Set by the driver code.  If, after calling Emulate(), it is still != 1, Mednafen will handle it internally
-	// by resampling the audio.  This means that emulation modules can handle(and set the value to 1 after handling it) it if they want to get the most
-	// performance possible.  HOWEVER, emulation modules must make sure the value is in a range(with minimum and maximum) that their code can handle
-	// before they try to handle it.
-	double soundmultiplier = 1.0;
-
-	// True if we want to rewind one frame.  Set by the driver code.
-	bool NeedRewind = false;
-
-	// Sound reversal during state rewinding is normally done in mednafen.cpp, but
-        // individual system emulation code can also do it if this is set, and clear it after it's done.
-        // (Also, the driver code shouldn't touch this variable)
-	bool NeedSoundReverse = false;
 };
-
-typedef enum
-{
- MODPRIO_INTERNAL_EXTRA_LOW = 0,	// For "cdplay" module, mostly.
-
- MODPRIO_INTERNAL_LOW = 10,
- MODPRIO_EXTERNAL_LOW = 20,
- MODPRIO_INTERNAL_HIGH = 30,
- MODPRIO_EXTERNAL_HIGH = 40
-} ModPrio;
 
 class CDIF;
 
@@ -468,46 +373,6 @@ struct RMD_Layout
  std::vector<RMD_DriveDefaults> DrivesDefaults;
 };
 
-struct CustomPalette_Spec
-{
- const char* description;
- const char* name_override;
-
- unsigned valid_entry_count[32];	// 0-terminated
-};
-
-#if 0 // Disabled for LibRetro
-struct GameFile
-{
- VirtualFS* const vfs;
- const std::string dir;	// path = vfs->eval_fip(dir, whatever);
- Stream* const stream;
-
- const std::string ext;		// Lowercase.
- const std::string fbase;
-
- // Outside archive.
- struct
- {
-  VirtualFS* const vfs;
-  const std::string dir;
-  const std::string fbase;
- } outside;
-};
-#endif // Disabled for LibRetro
-
-struct DesiredInputType
-{
- DesiredInputType() : device_name(nullptr) { }
- DesiredInputType(const char* dn) : device_name(dn) { }
-
- // nullptr for don't care
- const char* device_name;
-
- // Should override any *.defpos settings.
- std::map<std::string, uint32> switches;
-};
-
 struct GameDB_Entry
 {
  std::string GameID;
@@ -532,32 +397,12 @@ struct GameDB_Database
 
 typedef struct
 {
- const MDFNSetting *Settings;
-
  // Time base for EmulateSpecStruct::MasterCycles
  // MasterClock must be >= MDFN_MASTERCLOCK_FIXED(1.0)
  // All or part of the fractional component may be ignored in some timekeeping operations in the emulator to prevent integer overflow,
  // so it is unwise to have a fractional component when the integral component is very small(less than say, 10000).
  #define MDFN_MASTERCLOCK_FIXED(n)	((int64)((double)(n) * (1LL << 32)))
  int64 MasterClock;
-
- // Nominal frames per second * 65536 * 256, truncated.
- // May be deprecated in the future due to many systems having slight frame rate programmability.
- uint32 fps;
-
- // multires is a hint that, if set, indicates that the system has fairly programmable video modes(particularly, the ability
- // to display multiple horizontal resolutions, such as the PCE, PC-FX, or Genesis).  In practice, it will cause the driver
- // code to set the linear interpolation on by default.
- //
- // lcm_width and lcm_height are the least common multiples of all possible
- // resolutions in the frame buffer as specified by DisplayRect/LineWidths(Ex for PCE: widths of 256, 341.333333, 512,
- // lcm = 1024)
- //
- // nominal_width and nominal_height specify the resolution that Mednafen should display
- // the framebuffer image in at 1x scaling, scaled from the dimensions of DisplayRect, and optionally the LineWidths array
- // passed through espec to the Emulate() function.
- //
- int multires;
 
  int lcm_width;
  int lcm_height;
@@ -570,24 +415,9 @@ typedef struct
  int fb_width;		// Width of the framebuffer(not necessarily width of the image).  MDFN_Surface width should be >= this.
  int fb_height;		// Height of the framebuffer passed to the Emulate() function(not necessarily height of the image)
 
- int soundchan; 	// Number of output sound channels.  Only values of 1 and 2 are currently supported.
-
-
- int rotated;
-
- std::string name;    /* Game name, UTF-8 encoding */
  uint8 MD5[16];
 
- VideoSystems VideoSystem;
- GameMediumTypes GameType;	// Deprecated.
-
  RMD_Layout* RMD;
-
- const char *cspecial;  /* Special cart expansion: DIP switches, barcode reader, etc. */
-
- std::vector<DesiredInputType> DesiredInput; // Desired input devices and default switch positions for the input ports
-
- double IdealSoundRate;
 
  // For mouse relative motion.
  double mouse_sensitivity;

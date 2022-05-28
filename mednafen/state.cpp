@@ -21,12 +21,11 @@
 #include <map>
 
 #include "mednafen.h"
-#include "driver.h"
 #include "general.h"
 #include "state.h"
 #include <compat/msvc.h>
 
-#define RLSB 		MDFNSTATE_RLSB	//0x80000000
+#define RLSB MDFNSTATE_RLSB	//0x80000000
 
 int32_t smem_read(StateMem *st, void *buffer, uint32_t len)
 {
@@ -138,9 +137,6 @@ static void SubWrite(StateMem *st, const SFORMAT *sf)
       char nameo[1 + 255];
       const int slen = strlen(sf->name);
 
-      if(slen > 255)
-      	log_cb( RETRO_LOG_WARN, "State variable name \"%s\" is too long.", sf->name);
-
       memcpy(&nameo[1], sf->name, slen);
       nameo[0] = slen;
 
@@ -155,7 +151,6 @@ static void SubWrite(StateMem *st, const SFORMAT *sf)
 			for(int32 bool_monster = 0; bool_monster < bytesize; bool_monster++)
 			{
 				uint8 tmp_bool = ((bool *)p)[bool_monster];
-				//printf("Bool write: %.31s\n", sf->name);
 				smem_write(st, &tmp_bool, 1);
 			}
 		}
@@ -208,7 +203,6 @@ static void MakeSFMap(const SFORMAT *sf, SFMap_t &sfmap)
 static int ReadStateChunk(StateMem *st, const SFORMAT *sf, uint32 size)
 {
 	SFMap_t sfmap;
-	SFMap_t sfmap_found;	// Used for identifying variables that are missing in the save state.
 
 	MakeSFMap(sf, sfmap);
 
@@ -222,16 +216,10 @@ static int ReadStateChunk(StateMem *st, const SFORMAT *sf, uint32 size)
 		uint8_t toa[1 + 256];	// Don't change to char unless cast toa[0] to unsigned to smem_read() and other places.
 
 		if(smem_read(st, toa, 1) != 1)
-		{
-			log_cb( RETRO_LOG_ERROR, "Unexpected EOF\n");
 			return(0);
-		}
 
 		if(smem_read(st, toa + 1, toa[0]) != toa[0])
-		{
-			log_cb( RETRO_LOG_ERROR, "Unexpected EOF?\n");
 			return 0;
-		}
 
 		toa[1 + toa[0]] = 0;
 
@@ -247,22 +235,16 @@ static int ReadStateChunk(StateMem *st, const SFORMAT *sf, uint32 size)
 
 			if(recorded_size != tmp->size * (1 + tmp->repcount))
 			{
-				log_cb( RETRO_LOG_ERROR, "Variable in save state wrong size: %s.  Need: %d, got: %d\n", toa + 1, tmp->size * (1 + tmp->repcount), recorded_size);
 				if(smem_seek(st, recorded_size, SEEK_CUR) < 0)
-				{
-					log_cb( RETRO_LOG_ERROR, "Seek error\n");
 					return(0);
-				}
 			}
 			else
 			{
-				const auto type = tmp->type;
+				const auto type            = tmp->type;
 				const uint32 expected_size = tmp->size;	// In bytes
-				uintptr_t p = (uintptr_t)tmp->data;
-				uint32 repcount = tmp->repcount;
-				const size_t repstride = tmp->repstride;
-
-				sfmap_found[tmp->name] = tmp;
+				uintptr_t p                = (uintptr_t)tmp->data;
+				uint32 repcount            = tmp->repcount;
+				const size_t repstride     = tmp->repstride;
 
 				do
 				{
@@ -272,38 +254,15 @@ static int ReadStateChunk(StateMem *st, const SFORMAT *sf, uint32 size)
 					{
 						// Converting downwards is necessary for the case of sizeof(bool) > 1
 						for(int32 bool_monster = expected_size - 1; bool_monster >= 0; bool_monster--)
-						{
 							((bool *)p)[bool_monster] = ((uint8 *)p)[bool_monster];
-						}
-					}
-					else
-					{
-						/*switch(type)
-						{
-							case 2: Endian_A16_Swap((void*)p, expected_size / sizeof(uint16_t)); break;
-							case 4: Endian_A32_Swap((void*)p, expected_size / sizeof(uint32_t)); break;
-							case 8: Endian_A64_Swap((void*)p, expected_size / sizeof(uint64_t)); break;
-						}*/
 					}
 				} while(p += repstride, repcount--);
 			}
 		}
 		else
 		{
-			log_cb( RETRO_LOG_ERROR, "Unknown variable in save state: %s\n", toa + 1);
 			if(smem_seek(st, recorded_size, SEEK_CUR) < 0)
-			{
-				log_cb( RETRO_LOG_ERROR, "Seek error\n");
 				return(0);
-			}
-		}
-	} // while(...)
-
-	for(SFMap_t::const_iterator it = sfmap.begin(); it != sfmap.end(); it++)
-	{
-		if(sfmap_found.find(it->second->name) == sfmap_found.end())
-		{
-			log_cb( RETRO_LOG_WARN, "Variable of bytesize %u missing from save state: %s\n", it->second->size * (1 + it->second->repcount), it->second->name);
 		}
 	}
 
@@ -344,63 +303,50 @@ static int MDFNSS_StateAction_internal( void *st_p, int load, int data_only, SSD
 	StateMem *st = (StateMem*)st_p;
 
 	if ( load )
-   {
-      char sname[32];
+	{
+		char sname[32];
 
-      int found = 0;
-      uint32_t tmp_size;
-      uint32_t total = 0;
+		int found = 0;
+		uint32_t tmp_size;
+		uint32_t total = 0;
 
-      while ( smem_read(st, (uint8_t *)sname, 32 ) == 32 )
-      {
-         int where_are_we = st->loc - 32;
+		while ( smem_read(st, (uint8_t *)sname, 32 ) == 32 )
+		{
+			int where_are_we = st->loc - 32;
 
-         if(smem_read32le(st, &tmp_size) != 4)
-            return(0);
+			if(smem_read32le(st, &tmp_size) != 4)
+				return(0);
 
-         total += tmp_size + 32 + 4;
+			total += tmp_size + 32 + 4;
 
-         // Yay, we found the section
-         if ( !strncmp(sname, section->name, 32 ) )
-         {
-            if(!ReadStateChunk(st, section->sf, tmp_size))
-            {
-               log_cb( RETRO_LOG_ERROR, "Error reading chunk: %s\n", section->name );
-               return(0);
-            }
+			// Yay, we found the section
+			if ( !strncmp(sname, section->name, 32 ) )
+			{
+				if(!ReadStateChunk(st, section->sf, tmp_size))
+					return(0);
 
-            found = 1;
-            break;
-         }
-         else
-         {
-            if ( smem_seek(st, tmp_size, SEEK_CUR ) < 0 )
-            {
-               log_cb( RETRO_LOG_ERROR, "Chunk seek failure.\n" );
-               return(0);
-            }
-         }
-      }
+				found = 1;
+				break;
+			}
+			else
+			{
+				if ( smem_seek(st, tmp_size, SEEK_CUR ) < 0 )
+					return(0);
+			}
+		}
 
-      if ( smem_seek(st, -total, SEEK_CUR) < 0 )
-      {
-         log_cb( RETRO_LOG_ERROR, "Reverse seek error.\n" );
-         return(0);
-      }
+		if ( smem_seek(st, -total, SEEK_CUR) < 0 )
+			return(0);
 
-      if( !found && !section->optional ) // Not found.  We are sad!
-      {
-         log_cb( RETRO_LOG_ERROR, "Section missing:  %.32s\n", section->name);
-         return(0);
-      }
-
-   }
+		if( !found && !section->optional ) // Not found.  We are sad!
+			return(0);
+	}
 	else
-   {
-      // Write all the chunks.
-      if ( !WriteStateChunk(st, section->name, section->sf ) )
-         return(0);
-   }
+	{
+		// Write all the chunks.
+		if ( !WriteStateChunk(st, section->name, section->sf ) )
+			return(0);
+	}
 
 	return(1);
 }
@@ -408,7 +354,7 @@ static int MDFNSS_StateAction_internal( void *st_p, int load, int data_only, SSD
 int MDFNSS_StateAction(void *st_p, int load, int data_only, SFORMAT *sf, const char *name, bool optional)
 {
    SSDescriptor love;
-   StateMem *st = (StateMem*)st_p;
+   StateMem *st  = (StateMem*)st_p;
 
    love.sf       = sf;
    love.name     = name;
@@ -449,7 +395,6 @@ int MDFNSS_SaveSM(void *st_p, uint32_t ver, const void*, const void*, const void
 
 int MDFNSS_LoadSM(void *st_p, uint32_t ver)
 {
-	int success;
 	uint8_t header[32];
 	uint32_t stateversion;
 	StateMem *st = (StateMem*)st_p;
@@ -457,21 +402,14 @@ int MDFNSS_LoadSM(void *st_p, uint32_t ver)
 	smem_read( st, header, 32 );
 
 	// Invalid header?
-	if ( memcmp( header, "MDFNSVST", 8 ) ) {
-		log_cb( RETRO_LOG_ERROR, "[MDFNSS_LoadSM] Invalid save-state header.\n" );
+	if ( memcmp( header, "MDFNSVST", 8 ) )
 		return(0);
-	}
 
 	// Different core version?
 	stateversion = MDFN_de32lsb( header + 16 );
-	if ( stateversion != ver ) {
-		log_cb( RETRO_LOG_ERROR, "[MDFNSS_LoadSM] Saved with a different core version.\n" );
+	if ( stateversion != ver )
 		return(0);
-	}
 
 	// Call out to main save state function.
-	success = LibRetro_StateAction( st, 1 /*LOAD*/, false );
-
-	// Success?
-	return success;
+	return LibRetro_StateAction( st, 1 /*LOAD*/, false );
 }

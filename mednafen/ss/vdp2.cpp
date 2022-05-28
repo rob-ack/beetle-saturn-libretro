@@ -435,14 +435,10 @@ static INLINE void IncVCounter(const sscpu_timestamp_t event_timestamp)
   for(unsigned d = 0; d < 2; d++)
   {
    if((nlvc & mask) == (Window[d].YStart & mask))
-   {
     Window[d].YIn = true;
-   }
 
    if((prev_nlvc & mask) == (Window[d].YEnd & mask))
-   {
     Window[d].YEndMet = true;
-   }
 
    Window[d].YIn &= !Window[d].YEndMet;
   }
@@ -550,18 +546,18 @@ static INLINE int32 AddHCounter(const sscpu_timestamp_t event_timestamp, int32 c
 
 sscpu_timestamp_t Update(sscpu_timestamp_t timestamp)
 {
- int32 clocks = (timestamp - lastts) >> 2;
+ int32 clocks;
 
  if(MDFN_UNLIKELY(timestamp < lastts))
   clocks = 0;
+ else
+  clocks = (timestamp - lastts) >> 2;
 
  lastts += clocks << 2;
  //
  //
- int32 ne;
  int32 tmp;
-
- ne = AddHCounter(timestamp, clocks);
+ int32 ne = AddHCounter(timestamp, clocks);
  VDP1::SetHBVB(timestamp, HPhase > HPHASE_ACTIVE, Out_VB);
  tmp = SCU_SetHBVB(clocks, HPhase > HPHASE_ACTIVE, Out_VB);
  if(tmp < ne)
@@ -677,12 +673,8 @@ static INLINE uint16 RegsRead(uint32 A)
 {
  switch(A & 0x1FE)
  {
-  default:
-	return 0;
-
   case 0x00:
 	return (DisplayOn << 15) | (BorderMode << 8) | (InterlaceMode << 6) | (VRes << 4) | (HRes << 0);
-
   case 0x02:
 	if(!ExLatchEnable)
 	{
@@ -690,7 +682,6 @@ static INLINE uint16 RegsRead(uint32 A)
  	 LatchHV();
 	}
 	return (ExLatchEnable << 9) | (ExSyncEnable << 8) | (DispAreaSelect << 1) | (ExBGEnable << 0);
-
   case 0x04:
 	SS_SetEventNT(&events[SS_EVENT_VDP2], Update(SH7095_mem_timestamp));
 	{
@@ -704,16 +695,16 @@ static INLINE uint16 RegsRead(uint32 A)
 
   case 0x06:
 	return VRAMSize << 15;
-
   case 0x08:
 	return Latched_HCNT;
-
   case 0x0A:
 	return Latched_VCNT;
-
   case 0x0E:
 	return RAMCTL_Raw;
+  default:
+        break;
  }
+ return 0;
 }
 
 template<typename T, bool IsWrite>
@@ -862,11 +853,6 @@ void Init(const bool IsPAL, const uint64 affinity)
 
 void SetGetVideoParams(MDFNGI* gi, const bool caspect, const int sls, const int sle, const bool show_h_overscan, const bool dohblend)
 {
- if(PAL)
-  gi->fps = 65536 * 256 * (1734687500.0 / 61 / 4 / 455 / ((313 + 312.5) / 2.0));
- else
-  gi->fps = 65536 * 256 * (1746818181.8 / 61 / 4 / 455 / ((263 + 262.5) / 2.0));
-
  VDP2REND_SetGetVideoParams(gi, caspect, sls, sle, show_h_overscan, dohblend);
 }
 
@@ -958,163 +944,90 @@ void Reset(bool powering_up)
 //
 uint32 GetRegister(const unsigned id, char* const special, const uint32 special_len)
 {
- uint32 ret = 0xDEADBEEF;
-
  switch(id)
  {
   case GSREG_LINE:
-	ret = VCounter;
-	break;
-
+	return VCounter;
   case GSREG_DON:
-	ret = DisplayOn;
-	break;
-
+	return DisplayOn;
   case GSREG_BM:
-	ret = BorderMode;
-	break;
-
+	return BorderMode;
   case GSREG_IM:
-	ret = InterlaceMode;
-	break;
-
+	return InterlaceMode;
   case GSREG_VRES:
-	ret = VRes;
-	break;
-
+	return VRes;
   case GSREG_HRES:
-	ret = HRes;
-	break;
-
+	return HRes;
   case GSREG_RAMCTL:
-	ret = RAMCTL_Raw;
-	break;
-
+	return RAMCTL_Raw;
   case GSREG_CYCA0:
   case GSREG_CYCA1:
   case GSREG_CYCB0:
   case GSREG_CYCB1:
 	{
 	 const size_t idx = (id - GSREG_CYCA0);
-	 ret = (RawRegs[(0x10 >> 1) + (idx << 1)] << 16) | RawRegs[(0x12 >> 1) + (idx << 1)];
+	 return (RawRegs[(0x10 >> 1) + (idx << 1)] << 16) | RawRegs[(0x12 >> 1) + (idx << 1)];
 	}
-	break;
-
   case GSREG_BGON:
-	ret = BGON;
-	break;
-
+	return BGON;
   case GSREG_MZCTL:
-	ret = RawRegs[0x22 >> 1] & 0xFF1F;
-	break;
-
+	return RawRegs[0x22 >> 1] & 0xFF1F;
   case GSREG_SFSEL:
-	ret = RawRegs[0x24 >> 1] & 0x001F;
-	break;
-
+	return RawRegs[0x24 >> 1] & 0x001F;
   case GSREG_SFCODE:
-	ret = RawRegs[0x26 >> 1];
-	break;
-
+	return RawRegs[0x26 >> 1];
   case GSREG_CHCTLA:
-	ret = RawRegs[0x28 >> 1] & 0x3F7F;
-	break;
-
+	return RawRegs[0x28 >> 1] & 0x3F7F;
   case GSREG_CHCTLB:
-	ret = RawRegs[0x2A >> 1] & 0x7733;
-	break;
-  //
-  //
+	return RawRegs[0x2A >> 1] & 0x7733;
   case GSREG_SCXIN0:
-	ret = RawRegs[0x70 >> 1] & 0x07FF;
-	break;
+	return RawRegs[0x70 >> 1] & 0x07FF;
 
   case GSREG_SCXDN0:
-	ret = RawRegs[0x72 >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x72 >> 1] & 0xFF00;
   case GSREG_SCYIN0:
-	ret = RawRegs[0x74 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x74 >> 1] & 0x07FF;
   case GSREG_SCYDN0:
-	ret = RawRegs[0x76 >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x76 >> 1] & 0xFF00;
   case GSREG_ZMXIN0:
-	ret = RawRegs[0x78 >> 1] & 0x0007;
-	break;
-
+	return RawRegs[0x78 >> 1] & 0x0007;
   case GSREG_ZMXDN0:
-	ret = RawRegs[0x7A >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x7A >> 1] & 0xFF00;
   case GSREG_ZMYIN0:
-	ret = RawRegs[0x7C >> 1] & 0x0007;
-	break;
-
+	return RawRegs[0x7C >> 1] & 0x0007;
   case GSREG_ZMYDN0:
-	ret = RawRegs[0x7E >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x7E >> 1] & 0xFF00;
   case GSREG_SCXIN1:
-	ret = RawRegs[0x80 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x80 >> 1] & 0x07FF;
   case GSREG_SCXDN1:
-	ret = RawRegs[0x82 >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x82 >> 1] & 0xFF00;
   case GSREG_SCYIN1:
-	ret = RawRegs[0x84 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x84 >> 1] & 0x07FF;
   case GSREG_SCYDN1:
-	ret = RawRegs[0x86 >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x86 >> 1] & 0xFF00;
   case GSREG_ZMXIN1:
-	ret = RawRegs[0x88 >> 1] & 0x0007;
-	break;
-
+	return RawRegs[0x88 >> 1] & 0x0007;
   case GSREG_ZMXDN1:
-	ret = RawRegs[0x8A >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x8A >> 1] & 0xFF00;
   case GSREG_ZMYIN1:
-	ret = RawRegs[0x8C >> 1] & 0x0007;
-	break;
-
+	return RawRegs[0x8C >> 1] & 0x0007;
   case GSREG_ZMYDN1:
-	ret = RawRegs[0x8E >> 1] & 0xFF00;
-	break;
-
+	return RawRegs[0x8E >> 1] & 0xFF00;
   case GSREG_SCXN2:
-	ret = RawRegs[0x90 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x90 >> 1] & 0x07FF;
   case GSREG_SCYN2:
-	ret = RawRegs[0x92 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x92 >> 1] & 0x07FF;
   case GSREG_SCXN3:
-	ret = RawRegs[0x94 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x94 >> 1] & 0x07FF;
   case GSREG_SCYN3:
-	ret = RawRegs[0x96 >> 1] & 0x07FF;
-	break;
-
+	return RawRegs[0x96 >> 1] & 0x07FF;
   case GSREG_ZMCTL:
-	ret = RawRegs[0x98 >> 1] & 0x0303;
-	break;
-
+	return RawRegs[0x98 >> 1] & 0x0303;
   case GSREG_SCRCTL:
-	ret = RawRegs[0x9A >> 1] & 0x3F3F;
-	break;
+	return RawRegs[0x9A >> 1] & 0x3F3F;
  }
 
- return ret;
+ return 0xDEADBEEF;
 }
 
 void SetRegister(const unsigned id, const uint32 value)

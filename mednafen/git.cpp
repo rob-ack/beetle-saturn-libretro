@@ -115,17 +115,3 @@ IDIISG::IDIISG(std::initializer_list<InputDeviceInputInfoStruct> l) : std::vecto
 
  InputByteSize = (bit_offset + 7) / 8;
 }
-
-const std::vector<CheatFormatStruct> CheatFormatInfo_Empty;
-
-const CheatInfoStruct CheatInfo_Empty =
-{
- NULL,
- NULL,
-
- NULL,
- NULL,
-
- CheatFormatInfo_Empty
-};
-

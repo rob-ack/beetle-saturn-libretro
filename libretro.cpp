@@ -726,21 +726,10 @@ void retro_run(void)
 
    EmulateSpecStruct spec;
    spec.surface = surf;
-   spec.SoundRate = 44100;
    spec.LineWidths = rects;
-   spec.SoundVolume = 1.0;
-   spec.soundmultiplier = 1.0;
    spec.SoundBufSize = 0;
-   spec.VideoFormatChanged = false;
-   spec.SoundFormatChanged = false;
 
    EmulateSpecStruct *espec = (EmulateSpecStruct*)&spec;
-
-   if (spec.SoundRate != last_sound_rate)
-   {
-      spec.SoundFormatChanged = true;
-      last_sound_rate = spec.SoundRate;
-   }
 
    Emulate(espec);
 
