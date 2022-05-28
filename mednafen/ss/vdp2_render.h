@@ -23,7 +23,7 @@
 #define __MDFN_SS_VDP2_RENDER_H
 
 
-void VDP2REND_Init(const bool IsPAL) MDFN_COLD;
+void VDP2REND_Init(const bool IsPAL, const uint64 affinity) MDFN_COLD;
 void VDP2REND_SetGetVideoParams(MDFNGI* gi, const bool caspect, const int sls, const int sle, const bool show_h_overscan, const bool dohblend) MDFN_COLD;
 void VDP2REND_Kill(void) MDFN_COLD;
 void VDP2REND_GetGunXTranslation(const bool clock28m, float* scale, float* offs);
@@ -53,8 +53,8 @@ struct VDP2Rend_LIB
 VDP2Rend_LIB* VDP2REND_GetLIB(unsigned line);
 void VDP2REND_DrawLine(int vdp2_line, const uint32 crt_line, const bool field);
 
-void VDP2REND_Write8_DB(uint32 A, uint16 DB);
-void VDP2REND_Write16_DB(uint32 A, uint16 DB);
+void VDP2REND_Write8_DB(uint32 A, uint16 DB) MDFN_HOT;
+void VDP2REND_Write16_DB(uint32 A, uint16 DB) MDFN_HOT;
 
 
 #endif

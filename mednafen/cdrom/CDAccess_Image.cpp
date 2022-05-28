@@ -420,7 +420,7 @@ bool CDAccess_Image::ImageOpen(const std::string& path, bool image_memcache)
    {
       uint8_t bom_tmp[3];
 
-      if(fp.read(bom_tmp, 3, false) == 3 && bom_tmp[0] == 0xEF && bom_tmp[1] == 0xBB && bom_tmp[2] == 0xBF)
+      if(fp.read(bom_tmp, 3) == 3 && bom_tmp[0] == 0xEF && bom_tmp[1] == 0xBB && bom_tmp[2] == 0xBF)
       {
          // Print an annoying error message, but don't actually error out.
          log_cb(RETRO_LOG_WARN, "UTF-8 BOM detected at start of CUE sheet.\n");
@@ -680,7 +680,13 @@ bool CDAccess_Image::ImageOpen(const std::string& path, bool image_memcache)
                active_track = -1;
             }
 
-            std::string efn = MDFN_EvalFIP(base_dir, args[0]);
+            std::string efn;
+
+	    if(args[0].find("cdrom://") == std::string::npos)
+		    efn = MDFN_EvalFIP(base_dir, args[0]);
+	    else
+		    efn = args[0];
+
             TmpTrack.fp = new FileStream(efn.c_str(), MODE_READ);
             TmpTrack.FirstFileInstance = 1;
 
@@ -861,7 +867,6 @@ bool CDAccess_Image::ImageOpen(const std::string& path, bool image_memcache)
    NumTracks = 1 + LastTrack - FirstTrack;
 
    int32_t RunningLBA = 0;
-   int32_t LastIndex = 0;
    long FileOffset = 0;
 
    RunningLBA -= 150;
@@ -912,10 +917,7 @@ bool CDAccess_Image::ImageOpen(const std::string& path, bool image_memcache)
       else // else handle CUE sheet...
       {
          if(Tracks[x].FirstFileInstance) 
-         {
-            LastIndex = 0;
             FileOffset = 0;
-         }
 
          RunningLBA += Tracks[x].pregap;
 

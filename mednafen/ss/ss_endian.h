@@ -143,15 +143,6 @@ static INLINE void MDFN_ennsb(void* ptr, T value)
  MDFN_enXsb<-1, T, aligned>(ptr, value);
 }
 
-//
-// Little endian.
-//
-template<typename T, bool aligned = false>
-static INLINE void MDFN_enlsb(void* ptr, T value)
-{
- MDFN_enXsb<0, T, aligned>(ptr, value);
-}
-
 template<typename T, bool aligned = false>
 static INLINE void MDFN_enmsb(void* ptr, T value)
 {

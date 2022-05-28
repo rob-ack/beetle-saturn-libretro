@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* vdp1_common.h:
-**  Copyright (C) 2015-2016 Mednafen Team
+**  Copyright (C) 2015-2020 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -27,39 +27,45 @@
 namespace VDP1
 {
 
+enum { VDP1_SuspendResumeThreshold = 1000 };
+
 int32 CMD_NormalSprite(const uint16*);
 int32 CMD_ScaledSprite(const uint16*);
 int32 CMD_DistortedSprite(const uint16*);
+int32 RESUME_Sprite(const uint16*);
 
 int32 CMD_Polygon(const uint16*);
+int32 RESUME_Polygon(const uint16*);
+
 int32 CMD_Polyline(const uint16*);
 int32 CMD_Line(const uint16*);
+int32 RESUME_Line(const uint16*);
 
-extern uint16 VRAM[0x40000];
-extern uint16 FB[2][0x20000];
-extern bool FBDrawWhich;
+MDFN_HIDE extern uint16 VRAM[0x40000];
+MDFN_HIDE extern uint16 FB[2][0x20000];
+MDFN_HIDE extern uint16* FBDrawWhichPtr;
 
-extern int32 SysClipX, SysClipY;
-extern int32 UserClipX0, UserClipY0, UserClipX1, UserClipY1;
-extern int32 LocalX, LocalY;
+MDFN_HIDE extern int32 SysClipX, SysClipY;
+MDFN_HIDE extern int32 UserClipX0, UserClipY0, UserClipX1, UserClipY1;
+MDFN_HIDE extern int32 LocalX, LocalY;
 
-extern uint32 (MDFN_FASTCALL *const TexFetchTab[0x20])(uint32 x);
+MDFN_HIDE extern uint32 (MDFN_FASTCALL *const TexFetchTab[0x20])(uint32 x);
 
 enum { TVMR_8BPP   = 0x1 };
 enum { TVMR_ROTATE = 0x2 };
 enum { TVMR_HDTV   = 0x4 };
 enum { TVMR_VBE    = 0x8 };
-extern uint8 TVMR;
+MDFN_HIDE extern uint8 TVMR;
 
 enum { FBCR_FCT	   = 0x01 };	// Frame buffer change trigger
 enum { FBCR_FCM	   = 0x02 };	// Frame buffer change mode
 enum { FBCR_DIL	   = 0x04 };	// Double interlace draw line(0=even, 1=odd) (does it affect drawing to FB RAM or reading from FB RAM to VDP2?)
 enum { FBCR_DIE	   = 0x08 };	// Double interlace enable
 enum { FBCR_EOS	   = 0x10 };	// Even/Odd coordinate select(0=even, 1=odd, used with HSS)
-extern uint8 FBCR;
+MDFN_HIDE extern uint8 FBCR;
 
-extern uint8 spr_w_shift_tab[8];
-extern uint8 gouraud_lut[0x40];
+MDFN_HIDE extern uint8 spr_w_shift_tab[8];
+MDFN_HIDE extern uint8 gouraud_lut[0x40];
 
 struct GourauderTheTerrible
 {
@@ -199,21 +205,22 @@ struct VileTex
 //
 //
 //
-template<bool die, unsigned bpp8, bool MSBOn, bool UserClipEn, bool UserClipMode, bool MeshEn, bool HalfFGEn, bool HalfBGEn>
+template<bool die, unsigned bpp8, bool MSBOn, bool UserClipEn, bool UserClipMode, bool MeshEn, bool GouraudEn, bool HalfFGEn, bool HalfBGEn>
 static INLINE int32 PlotPixel(int32 x, int32 y, uint16 pix, bool transparent, GourauderTheTerrible* g)
 {
+ //printf("%d %d %d %d %d %d %d\n", bpp8, die, MeshEn, MSBOn, GouraudEn, HalfFGEn, HalfBGEn);
  static_assert(!MSBOn || (!HalfFGEn && !HalfBGEn), "Table error; sub-optimal template arguments.");
  int32 ret = 0;
  uint16* fbyptr;
 
  if(die)
  {
-  fbyptr = &FB[FBDrawWhich][((y >> 1) & 0xFF) << 9];
+  fbyptr = &FBDrawWhichPtr[((y >> 1) & 0xFF) << 9];
   transparent |= ((y & 1) != (bool)(FBCR & FBCR_DIL));
  }
  else
  {
-  fbyptr = &FB[FBDrawWhich][(y & 0xFF) << 9];
+  fbyptr = &FBDrawWhichPtr[(y & 0xFF) << 9];
  }
 
  if(MeshEn)
@@ -258,14 +265,14 @@ static INLINE int32 PlotPixel(int32 x, int32 y, uint16 pix, bool transparent, Go
     {
      if(HalfFGEn)
      {
-      if(g)
+      if(GouraudEn)
        pix = g->Apply(pix);
 
       pix = ((pix + bg_pix) - ((pix ^ bg_pix) & 0x8421)) >> 1;
      }
      else
      {
-      if(g)
+      if(GouraudEn)
        pix = 0;
       else
        pix = ((bg_pix & 0x7BDE) >> 1) | (bg_pix & 0x8000); 
@@ -275,14 +282,14 @@ static INLINE int32 PlotPixel(int32 x, int32 y, uint16 pix, bool transparent, Go
     {
      if(HalfFGEn)
      {
-      if(g)
+      if(GouraudEn)
        pix = g->Apply(pix);
       else
        pix = pix;
      }
      else
      {
-      if(g)
+      if(GouraudEn)
        pix = 0;
       else
        pix = bg_pix;
@@ -291,7 +298,7 @@ static INLINE int32 PlotPixel(int32 x, int32 y, uint16 pix, bool transparent, Go
    }
    else
    {
-    if(g)
+    if(GouraudEn)
      pix = g->Apply(pix);
 
     if(HalfFGEn)
@@ -307,17 +314,6 @@ static INLINE int32 PlotPixel(int32 x, int32 y, uint16 pix, bool transparent, Go
 
  return ret;
 }
-
-
-static INLINE void CheckUndefClipping(void)
-{
- if(SysClipX < UserClipX1 || SysClipY < UserClipY1 || UserClipX0 > UserClipX1 || UserClipY0 > UserClipY1)
- {
-  //SS_DBG(SS_DBG_WARNING, "[VDP1] Illegal clipping windows; Sys=%u:%u -- User=%u:%u - %u:%u\n", SysClipX, SysClipY, UserClipX0, UserClipY0, UserClipX1, UserClipY1);
- }
-}
-
-
 //
 //
 struct line_vertex
@@ -327,292 +323,11 @@ struct line_vertex
  int32 t;
 };
 
-struct line_data
-{
- line_vertex p[2];
- bool PCD;
- bool HSS;
- uint16 color;
- int32 ec_count;
- uint32 (MDFN_FASTCALL *tffn)(uint32);
- uint16 CLUT[0x10];
- uint32 cb_or;
- uint32 tex_base;
-};
-
-extern line_data LineSetup;
-
-template<bool AA, bool die, unsigned bpp8, bool MSBOn, bool UserClipEn, bool UserClipMode, bool MeshEn, bool ECD, bool SPD, bool Textured, bool GouraudEn, bool HalfFGEn, bool HalfBGEn>
-static int32 DrawLine(void)
-{
- const uint16 color = LineSetup.color;
- line_vertex p0 = LineSetup.p[0];
- line_vertex p1 = LineSetup.p[1];
- int32 ret = 0;
-
- if(!LineSetup.PCD)
- {
-  // TODO:
-  //	Plain clipping treats system clip X as an unsigned 10-bit quantity...
-  //	Pre-clipping treats system clip X as a signed 13-bit quantity...
-  //
-  bool clipped = false;
-  bool swapped = false;
-
-  ret += 4;
-
-  if(UserClipEn)
-  {
-   if(UserClipMode)
-   {
-    // not correct: clipped |= (p0.x >= UserClipX0) & (p1.x <= UserClipX1) & (p0.y >= UserClipY0) & (p1.y <= UserClipY1);
-    clipped |= (p0.x < 0) & (p1.x < 0);
-    clipped |= (p0.x > SysClipX) & (p1.x > SysClipX);
-    clipped |= (p0.y < 0) & (p1.y < 0);
-    clipped |= (p0.y > SysClipY) & (p1.y > SysClipY);
-
-    swapped = (p0.y == p1.y) & ((p0.x < 0) | (p0.x > SysClipX));
-   }
-   else
-   {
-    // Ignore system clipping WRT pre-clip for UserClipEn == 1 && UserClipMode == 0
-    clipped |= (p0.x < UserClipX0) & (p1.x < UserClipX0);
-    clipped |= (p0.x > UserClipX1) & (p1.x > UserClipX1);
-    clipped |= (p0.y < UserClipY0) & (p1.y < UserClipY0);
-    clipped |= (p0.y > UserClipY1) & (p1.y > UserClipY1);
-
-    swapped = (p0.y == p1.y) & ((p0.x < UserClipX0) | (p0.x > UserClipX1));
-   }
-  }
-  else
-  {
-   clipped |= (p0.x < 0) & (p1.x < 0);
-   clipped |= (p0.x > SysClipX) & (p1.x > SysClipX);
-   clipped |= (p0.y < 0) & (p1.y < 0);
-   clipped |= (p0.y > SysClipY) & (p1.y > SysClipY);
-
-   swapped = (p0.y == p1.y) & ((p0.x < 0) | (p0.x > SysClipX));
-  }
-
-  if(clipped)
-   return ret;
-
-  if(swapped)
-   std::swap(p0, p1);
- }
-
- ret += 8;
-
- //
- //
- const int32 dx = p1.x - p0.x;
- const int32 dy = p1.y - p0.y;
- const int32 abs_dx = abs(dx);
- const int32 abs_dy = abs(dy);
- const int32 max_adx_ady = std::max<int32>(abs_dx, abs_dy);
- int32 x_inc = (dx >= 0) ? 1 : -1;
- int32 y_inc = (dy >= 0) ? 1 : -1;
- int32 x = p0.x;
- int32 y = p0.y;
- bool drawn_ac = true;	// Drawn all-clipped
- uint32 texel;
- GourauderTheTerrible g;
- VileTex t;
-
- if(GouraudEn)
-  g.Setup(max_adx_ady + 1, p0.g, p1.g);
-
- if(Textured)
- {
-  LineSetup.ec_count = 2;	// Call before tffn()
-
-  if(MDFN_UNLIKELY(max_adx_ady < abs(p1.t - p0.t) && LineSetup.HSS))
-  {
-   LineSetup.ec_count = 0x7FFFFFFF;
-   t.Setup(max_adx_ady + 1, p0.t >> 1, p1.t >> 1, 2, (bool)(FBCR & FBCR_EOS));
-  }
-  else
-   t.Setup(max_adx_ady + 1, p0.t, p1.t);
-
-  texel = LineSetup.tffn(t.Current());
- }
-
- #define PSTART							\
-	bool transparent;					\
-	uint16 pix;						\
-								\
-	if(Textured)						\
-	{							\
-	 /*ret++;*/							\
-	 while(t.IncPending())					\
-	 {							\
-	  int32 tx = t.DoPendingInc();				\
-								\
-	  /*ret += (bool)t.IncPending();*/				\
-								\
-	  texel = LineSetup.tffn(tx);				\
-								\
-	  if(!ECD && MDFN_UNLIKELY(LineSetup.ec_count <= 0))	\
-	   return ret;						\
-	 }							\
-	 t.AddError();						\
-								\
-	 transparent = (SPD && ECD) ? false : (texel >> 31);	\
-	 pix = texel;		\
-	}			\
-	else			\
-	{			\
-	 pix = color;		\
-	 transparent = !SPD;	\
-	}
-
- /* hmm, possible problem with AA and drawn_ac...*/
- #define PBODY(px, py)											\
-	{												\
-	 bool clipped = ((uint32)px > (uint32)SysClipX) | ((uint32)py > (uint32)SysClipY);		\
-													\
-	 if(UserClipEn && !UserClipMode)								\
-	  clipped |= (px < UserClipX0) | (px > UserClipX1) | (py < UserClipY0) | (py > UserClipY1);	\
-													\
-	 if(MDFN_UNLIKELY((clipped ^ drawn_ac) & clipped))						\
-	  return ret;											\
-													\
-	 drawn_ac &= clipped;										\
-													\
-	 if(UserClipEn && UserClipMode)									\
-	  clipped |= (px >= UserClipX0) & (px <= UserClipX1) & (py >= UserClipY0) & (py <= UserClipY1);	\
-													\
-	 ret += PlotPixel<die, bpp8, MSBOn, UserClipEn, UserClipMode, MeshEn, HalfFGEn, HalfBGEn>(px, py, pix, transparent | clipped, (GouraudEn ? &g : NULL));	\
-	}
-
- #define PEND						\
-	{						\
-	 if(GouraudEn)					\
-	  g.Step();					\
-        }
-
-
- if(abs_dy > abs_dx)
- {
-  int32 error_inc = 2 * abs_dx;
-  int32 error_adj = -(2 * abs_dy);
-  int32 error = abs_dy - (2 * abs_dy + (dy >= 0 || AA));
-
-  y -= y_inc;
-
-  do
-  {
-   PSTART;
-
-   y += y_inc;
-   if(error >= 0)
-   {
-    if(AA)
-    {
-     int32 aa_x = x, aa_y = y;
-
-     if(y_inc < 0)
-     {
-      aa_x += (x_inc >> 31);
-      aa_y -= (x_inc >> 31);
-     }
-     else
-     {
-      aa_x -= (~x_inc >> 31);
-      aa_y += (~x_inc >> 31);
-     }
-
-     PBODY(aa_x, aa_y);
-    }
-
-    error += error_adj;
-    x += x_inc;
-   }
-   error += error_inc;
-
-   PBODY(x, y);
-
-   PEND;
-  } while(MDFN_LIKELY(y != p1.y));
- }
- else
- {
-  int32 error_inc = 2 * abs_dy;
-  int32 error_adj = -(2 * abs_dx);
-  int32 error = abs_dx - (2 * abs_dx + (dx >= 0 || AA));
-
-  x -= x_inc;
-
-  do
-  {
-   PSTART;
-
-   x += x_inc;
-   if(error >= 0)
-   {
-    if(AA)
-    {
-     int32 aa_x = x, aa_y = y;
-
-     if(x_inc < 0)
-     {
-      aa_x -= (~y_inc >> 31);
-      aa_y -= (~y_inc >> 31);
-     }
-     else
-     {
-      aa_x += (y_inc >> 31);
-      aa_y += (y_inc >> 31);
-     }
-
-     PBODY(aa_x, aa_y);
-    }
-
-    error += error_adj;
-    y += y_inc;
-   }
-   error += error_inc;
-
-   PBODY(x, y);
-
-   PEND;
-  } while(MDFN_LIKELY(x != p1.x));
- }
-
- return ret;
-}
-
-template<bool gourauden>
 struct EdgeStepper
 {
- INLINE void Setup(const line_vertex& p0, const line_vertex& p1, const int32 dmax)
- {
-  int32 dx = p1.x - p0.x;
-  int32 dy = p1.y - p0.y;
-  int32 abs_dx = abs(dx);
-  int32 abs_dy = abs(dy);
-  int32 max_adxdy = std::max<int32>(abs_dx, abs_dy);
+ void Setup(const bool gourauden, const line_vertex& p0, const line_vertex& p1, const int32 dmax);
 
-  x = p0.x;
-  x_inc = (dx >= 0) ? 1 : -1;
-  x_error = ~(max_adxdy - (2 * max_adxdy + (dy >= 0)));
-  x_error_inc = 2 * abs_dx;
-  x_error_adj = 2 * max_adxdy;
-
-  y = p0.y;
-  y_inc = (dy >= 0) ? 1 : -1;
-  y_error = ~(max_adxdy - (2 * max_adxdy + (dx >= 0)));
-  y_error_inc = 2 * abs_dy;
-  y_error_adj = 2 * max_adxdy;
-
-  d_error = -dmax;
-  d_error_inc = 2 *max_adxdy;
-  d_error_adj = 2 * dmax;
-
-  if(gourauden)
-   g.Setup(max_adxdy + 1, p0.g, p1.g);
- }
-
+ template<bool gourauden>
  INLINE void GetVertex(line_vertex* p)
  {
   p->x = x;
@@ -622,45 +337,235 @@ struct EdgeStepper
    p->g = g.Current();
  }
 
+ template<bool gourauden>
  INLINE void Step(void)
  {
-  uint32 mask;
-
   d_error += d_error_inc;
-  if(d_error >= 0)
+  if((int32)d_error >= d_error_cmp)
   {
-   d_error -= d_error_adj;
+   d_error += d_error_adj;
 
-   x_error -= x_error_inc;
-   mask = (int32)x_error >> 31;
-   x += x_inc & mask;
-   x_error += x_error_adj & mask;
+   x_error += x_error_inc;
+   {
+    const uint32 x_mask = -((int32)x_error >= x_error_cmp);
+    x += x_inc & x_mask;
+    x_error += x_error_adj & x_mask;
+   }
 
-   y_error -= y_error_inc;
-   mask = (int32)y_error >> 31;
-   y += y_inc & mask;
-   y_error += y_error_adj & mask;
+   y_error += y_error_inc;
+   {
+    const uint32 y_mask = -((int32)y_error >= y_error_cmp);
+    y += y_inc & y_mask;
+    y_error += y_error_adj & y_mask;
+   }
 
    if(gourauden)
     g.Step();
   }
  }
 
- int32 d_error, d_error_inc, d_error_adj;
+ uint32 d_error, d_error_inc, d_error_adj;
+ int32 d_error_cmp;
 
- int32 x, x_inc;
- int32 x_error, x_error_inc, x_error_adj;
+ uint32 x, x_inc;
+ uint32 x_error, x_error_inc, x_error_adj;
+ int32 x_error_cmp;
 
- int32 y, y_inc;
- int32 y_error, y_error_inc, y_error_adj;
+ uint32 y, y_inc;
+ uint32 y_error, y_error_inc, y_error_adj;
+ int32 y_error_cmp;
 
  GourauderTheTerrible g;
 };
 
+struct line_inner_data
+{
+ uint32 xy;
+ uint32 error;
+ bool drawn_ac;
+
+ uint32 texel; // must be 32-bit
+ VileTex t;
+ GourauderTheTerrible g;
+ //
+ //
+ //
+ int32 xy_inc[2];
+ uint32 aa_xy_inc;
+ uint32 term_xy;
+
+ int32 error_cmp;
+ uint32 error_inc;
+ uint32 error_adj;
+
+ uint16 color;
+};
+
+struct line_data
+{
+ line_vertex p[2];
+ //
+ uint16 color;
+ int32 ec_count;
+ uint32 (MDFN_FASTCALL *tffn)(uint32);
+ uint16 CLUT[0x10];
+ uint32 cb_or;
+ uint32 tex_base;
+};
+
+MDFN_HIDE extern line_data LineData;
+
+MDFN_HIDE extern line_inner_data LineInnerData;
+
+struct prim_data
+{
+ EdgeStepper e[2];
+ VileTex big_t;
+ uint32 tex_base;
+ int32 iter;
+ bool need_line_resume;
+};
+
+MDFN_HIDE extern prim_data PrimData;
+
+// Not sure the exact nature of this overhead, probably the combined effects of FBRAM and VRAM refresh, and something else.
+// 8bpp mode timing is best-caseish, performance is different between horizontal and vertical lines.
+//
+// Must always return 0 if 'cycles' argument is zero.
+static INLINE int32 AdjustDrawTiming(const int32 cycles)
+{
+ MDFN_HIDE extern uint32 DTACounter;
+ uint32 extra_cycles;
+
+ DTACounter += cycles * ((TVMR & TVMR_8BPP) ? 24 : 48);
+ extra_cycles = DTACounter >> 8;
+ DTACounter &= 0xFF;
+
+ return cycles + extra_cycles;
+}
+
+bool SetupDrawLine(int32* const cycle_counter, const bool AA, const bool Textured, const uint16 mode);
+
+ /* hmm, possible problem with AA and drawn_ac...*/
+ #define PBODY(pxy)											\
+	{												\
+	 const uint32 px = (uint16)(pxy);								\
+	 const uint32 py = (pxy) >> 16;									\
+	 bool clipped;											\
+													\
+	 if(UserClipEn && !UserClipMode)								\
+	  clipped = ((uclipo1 - pxy) | (pxy - uclipo0)) & 0x80008000; 					\
+	 else												\
+	  clipped = (clipo - pxy) & 0x80008000;								\
+													\
+	 if(MDFN_UNLIKELY((clipped ^ lid.drawn_ac) & clipped))						\
+	  return ret;											\
+													\
+	 lid.drawn_ac &= clipped;									\
+													\
+	 if(UserClipEn)											\
+	 {												\
+	  if(!UserClipMode)										\
+	   clipped |= (clipo - pxy) & 0x80008000;							\
+	  else												\
+	   clipped |= !(((uclipo1 - pxy) | (pxy - uclipo0)) & 0x80008000); 				\
+	 }												\
+													\
+	 ret += PlotPixel<die, bpp8, MSBOn, UserClipEn, UserClipMode, MeshEn, GouraudEn, HalfFGEn, HalfBGEn>(px, py, pix, transparent | clipped, (GouraudEn ? &lid.g : NULL));	\
+	}
+
+template<bool AA, bool Textured, bool die, unsigned bpp8, bool MSBOn, bool UserClipEn, bool UserClipMode, bool MeshEn, bool ECD, bool SPD, bool GouraudEn, bool HalfFGEn, bool HalfBGEn>
+static int32 DrawLine(bool* need_line_resume)
+{
+ //printf("Textured=%d, AA=%d, UserClipEn=%d, UserClipMode=%d, ECD=%d, SPD=%d, GouraudEn=%d\n", Textured, AA, UserClipEn, UserClipMode, ECD, SPD, GouraudEn);
+ const uint32 clipo = ((SysClipY & 0x3FF) << 16) | (SysClipX & 0x3FF);
+ const uint32 uclipo0 = ((UserClipY0 & 0x3FF) << 16) | (UserClipX0 & 0x3FF);
+ const uint32 uclipo1 = ((UserClipY1 & 0x3FF) << 16) | (UserClipX1 & 0x3FF);
+ line_inner_data lid = LineInnerData;
+ int32 ret = 0;
+
+ do
+ {
+  bool transparent;
+  uint16 pix;
+
+  if(Textured)
+  {
+   /*ret++;*/
+   while(lid.t.IncPending())
+   {
+    int32 tx = lid.t.DoPendingInc();
+
+    /*ret += (bool)t.IncPending();*/
+
+    lid.texel = LineData.tffn(tx);
+
+    if(!ECD && MDFN_UNLIKELY(LineData.ec_count <= 0))
+     return ret;
+   }
+   lid.t.AddError();
+
+   transparent = (SPD && ECD) ? false : (lid.texel >> 31);
+   pix = lid.texel;
+  }
+  else
+  {
+   pix = lid.color;
+   transparent = !SPD;
+  }
+  //
+  //
+  //
+  lid.xy = (lid.xy + lid.xy_inc[0]) & 0x07FF07FF;
+  lid.error += lid.error_inc;
+  if((int32)lid.error >= lid.error_cmp)
+  {
+   lid.error += lid.error_adj;
+
+   if(AA)
+   {
+    const uint32 aa_xy = (lid.xy + lid.aa_xy_inc) & 0x07FF07FF;
+
+    PBODY(aa_xy);
+   }
+
+   lid.xy = (lid.xy + lid.xy_inc[1]) & 0x07FF07FF;
+  }
+  //
+  //
+  //
+  PBODY(lid.xy);
+  //
+  //
+  //
+  if(GouraudEn)
+   lid.g.Step();
+
+  if(MDFN_UNLIKELY(ret >= VDP1_SuspendResumeThreshold) && lid.xy != lid.term_xy)
+  {
+   LineInnerData.xy = lid.xy;
+   LineInnerData.error = lid.error;
+   LineInnerData.drawn_ac = lid.drawn_ac;
+
+   if(Textured)
+   {
+    LineInnerData.texel = lid.texel;
+    LineInnerData.t = lid.t;
+   }
+
+   if(GouraudEn)
+    LineInnerData.g = lid.g;
+
+   *need_line_resume = true;
+   return ret;
+  }
+ } while(MDFN_LIKELY(lid.xy != lid.term_xy));
+
+ return ret;
+}
+
 //
 //
 }
-
-
 
 #endif

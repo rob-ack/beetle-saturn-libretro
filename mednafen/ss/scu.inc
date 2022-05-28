@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* scu.inc - SCU Emulation
-**  Copyright (C) 2015-2018 Mednafen Team
+**  Copyright (C) 2015-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -30,6 +30,15 @@
 // TODO: Test and improve emulation of DSP single-stepping.
 //
 // TODO: Running DMA forces DSP into full execution mode when single-stepping; test the exact semantics, and implement it.
+//
+// TODO: Better emulation of SH-2 CPU to SCU write timings:
+//		A-bus write buffer
+//
+//		Higher B-bus base overhead, unless the last read or write to the specific memory region(VDP1 VRAM, VDP1 FB, etc.) being accessed
+//		was in the same page; pages seem to be 512 bytes for VDP1 VRAM, maybe 32 bytes for FB RAM but probably more complex.
+//
+// TODO: SH-2 CPU read overhead when reading from VDP1 VRAM and VDP1 FB RAM should be significantly higher.
+//
 
 /*
  Notes(assuming NTSC, HRES=0, VRES=0, LSMD=0):
@@ -166,6 +175,7 @@ static struct DMALevelS
 static sscpu_timestamp_t SCU_DMA_TimeCounter;
 static sscpu_timestamp_t SCU_DMA_RunUntil;
 static int32 SCU_DMA_ReadOverhead;	// range -whatever to 0.
+static uint32 SCU_DMA_SDRAM_Slowdown_Counter;
 
 static uint32 SCU_DMA_VDP1WriteIgnoreKludge;
 
@@ -174,16 +184,20 @@ static void CheckDMAStart(DMALevelS* d);
 static void CheckDMASFByInt(unsigned int_which);
 static INLINE void CheckForceDMAFinish(void);
 
+static sscpu_timestamp_t BBus_SH2_WriteFinishTS;
+
 static uint32 IAsserted;
 static uint32 IPending;
 static uint32 IMask;
 
 static uint32 ABusIProhibit;
+static uint32 ASR0, ASR1;
+static uint8 AREF;
 static bool RSEL;
 
 static uint8 ILevel, IVec;
 
-static INLINE void RecalcMasterIntOut(void)
+static INLINE bool CheckDoMasterInt(void)
 {
  if(ILevel == 0)
  {
@@ -205,6 +219,9 @@ static INLINE void RecalcMasterIntOut(void)
   unsigned we = MDFN_tzcount16(ipmd >> 16);
   unsigned olev, ovec, bpos;
 
+  //if((ipmd & 0x3) == 0x3 || ((ipmd & 0x81) == 0x81))
+  // printf("CONFLICT: 0x%08x 0x%08x\n", IPending, ipmd);
+
   olev = internal_tab[wi];
   ovec = 0x40 + wi;
   bpos = wi;
@@ -221,13 +238,12 @@ static INLINE void RecalcMasterIntOut(void)
    ILevel = olev;
    IVec = ovec;
    IPending &= ~(1U << bpos);
-#ifdef HAVE_DEBUG
-   SS_DBGTI(SS_DBG_SCU_INT, "[SCU] Interrupt %d/%s(level=0x%02x, vector=0x%02x) --- IPending=0x%04x", bpos, IntNames[bpos], ILevel, IVec, IPending);
-#endif
+
+   return true;
   }
  }
 
- CPU[0].SetIRL(ILevel);
+ return false;
 }
 
 static int32 Timer0_Counter;
@@ -251,24 +267,12 @@ static uint8 SCU_MSH2VectorFetch(void)
 {
  uint8 ret = IVec;
 
-#ifdef HAVE_DEBUG
- if(MDFN_UNLIKELY(ILevel == 0))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] [MSH2] [BUG] SCU_MSH2VectorFetch() called when ILevel == 0\n");
- }
- else
- {
-  SS_DBGTI(SS_DBG_SCU_INT, "[SCU] Interrupt level=0x%02x cleared via vector fetch.", ILevel);
- }
-#endif
-
  if(MDFN_UNLIKELY(IVec == 0x40 /* || IVec == 0x41 */))	// VB In, apply cheats.
   MDFNMP_ApplyPeriodicCheats();
 
  IMask = 0xBFFF;
-
  ILevel = 0;
- RecalcMasterIntOut();
+ CPU[0].SetIRL(ILevel);
 
  return ret;
 }
@@ -290,7 +294,10 @@ static INLINE void ABusIRQCheck(void)
  ABusIProhibit |= IAsserted & ~0xFFFF;
 
  if(tt)
-  RecalcMasterIntOut();
+ {
+  if(CheckDoMasterInt())
+   CPU[0].SetIRL(ILevel);
+ }
 }
 
 static INLINE void SetInt(unsigned which, bool active)
@@ -306,14 +313,11 @@ static INLINE void SetInt(unsigned which, bool active)
  {
   if((old_IAsserted ^ IAsserted) & IAsserted)
   {
-#ifdef HAVE_DEBUG
-   if(!(IPending & (1U << which)))
-    SS_DBGTI(SS_DBG_SCU_INT, "[SCU] Interrupt %d/%s pending.", which, IntNames[which]);
-#endif
 
    IPending |= 1U << which;
    CheckDMASFByInt(which);
-   RecalcMasterIntOut();
+   if(CheckDoMasterInt())
+    CPU[0].SetIRL(ILevel);
   }
  }
 }
@@ -403,6 +407,8 @@ static void SCU_AdjustTS(const int32 delta)
  if(DSP.T0_Until > 0x10000000)
   DSP.T0_Until = 0x10000000;
 
+ //DSP.LastTS = std::max<sscpu_timestamp_t>(-1000000, DSP.LastTS + delta);
+
  DSP.LastTS += delta;
  if(DSP.LastTS < 0)
  {
@@ -410,7 +416,23 @@ static void SCU_AdjustTS(const int32 delta)
   //printf("%d\n", DSP.LastTS);
   DSP.LastTS = 0;
  }
+ //
+ //
+ //
+ BBus_SH2_WriteFinishTS = std::max<sscpu_timestamp_t>(-1000000, BBus_SH2_WriteFinishTS + delta);
 }
+
+/*
+static sscpu_timestamp_t SCU_UpdateInt(sscpu_timestamp_t timestamp)
+{
+ if(timestamp < events[SS_EVENT_SCU_INT].event_time)
+  return events[SS_EVENT_SCU_INT].event_time;
+
+ CPU[0].SetIRL(ILevel);
+
+ return SS_EVENT_DISABLED_TS;
+}
+*/
 
 //
 // TODO: Test to see if the entire data bus or only parts are asserted for uint8 and uint16 reads
@@ -429,14 +451,10 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
 
  if(IsWrite)
  {
-#ifdef HAVE_DEBUG
-  SS_DBGTI(SS_DBG_SCU_REGW, "[SCU] %zu-byte write to 0x%02x, DB=0x%08x", sizeof(T), A & 0xFC, *DB);
-#endif
 
   switch(A & 0xFC)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Unknown %zu-byte write to 0x%08x(DB=0x%08x).\n", sizeof(T), A, *DB);
 	break;
 
    case 0x90:	// Timer 0 Compare
@@ -473,19 +491,21 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
 	break;
 
    case 0xA0:
-#ifdef HAVE_DEBUG
-	SS_DBGTI(SS_DBG_SCU_INT, "[SCU] Write to IMS: 0x%04x --- ILevel=0x%02x, vector=0x%02x IPending=0x%04x", *DB, ILevel, IVec, IPending);
-#endif
 	IMask = (IMask &~ mask) | (*DB & mask & 0xBFFF);
-	RecalcMasterIntOut();
+
+	if(CheckDoMasterInt())
+	{
+/*
+	 if(MDFN_UNLIKELY(ss_horrible_hacks & HORRIBLEHACK_SCUINTDELAY))
+	  SS_SetEventNT(&events[SS_EVENT_SCU_INT], SH7095_mem_timestamp + 8);
+	 else
+*/
+	  CPU[0].SetIRL(ILevel);
+	}
 	break;
 
    case 0xA4:
-#ifdef HAVE_DEBUG
-	SS_DBGTI(SS_DBG_SCU_INT, "[SCU] Write to IST: 0x%04x --- ILevel=0x%02x, vector=0x%02x IPending=0x%04x", *DB, ILevel, IVec, IPending);
-#endif
 	IPending &= *DB | ~mask;
-	RecalcMasterIntOut();
 	break;
 
    case 0xA8:
@@ -496,14 +516,20 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
 	}
 	break;
 
+   case 0xB0:
+	ASR0 = (ASR0 &~ mask) | (*DB & mask & 0xFFFDFFFD);
+	break;
+
+   case 0xB4:
+	ASR1 = (ASR1 &~ mask) | (*DB & mask & 0xF00DFFFD);
+	break;
+
+   case 0xB8:
+	AREF = (AREF &~ mask) | (*DB & mask & 0x1F);
+	break;
+
    case 0xC4:
 	RSEL = (RSEL &~ mask) | (*DB & mask & 0x1);
-#ifdef HAVE_DEBUG
-	if(MDFN_UNLIKELY(!RSEL))
-	{
-	 SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Write to RSEL, RSEL=0\n");
-	}
-#endif
 	break;
 
    case 0x00:
@@ -599,8 +625,6 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
 	 {
 	  auto& d = DMALevel[level];
 
-	  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Forced stop of DMA level %u\n", level);
-
 	  d.Active = false;
 	  d.GoGoGadget = false;
 	 }
@@ -674,7 +698,6 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
   switch(A & 0xFC)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Unknown %zu-byte read from 0x%08x.\n", sizeof(T), A);
 	*DB = 0;
 	break;
 
@@ -771,11 +794,24 @@ static INLINE void SCU_RegRW_DB(uint32 A, uint32* DB)
  }
 }
 
-
 template<typename T, bool IsWrite, bool SH32 = false>
 static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma_time_thing = NULL, int32* sh2_dma_time_thing = NULL)	// add to time_thing, subtract from dma_time_thing
 {
  static_assert(IsWrite || sizeof(T) == 2, "Wrong type.");
+
+ if(time_thing != NULL)
+ {
+  if(!SH32)
+  {
+   *time_thing = std::max<sscpu_timestamp_t>(*time_thing, BBus_SH2_WriteFinishTS);
+
+   if(IsWrite)
+   {
+    *time_thing += 2;
+    BBus_SH2_WriteFinishTS = *time_thing;
+   }
+  }
+ }
 
  //
  // VDP1
@@ -783,7 +819,7 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  if(A >= 0x05C00000 && A <= 0x05D7FFFF)
  {
   if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= IsWrite ? (SH32 ? 0 : 6) : 10;
+   *sh2_dma_time_thing += IsWrite ? (SH32 ? 0 : 6) : 10;
 
   if(dma_time_thing != NULL)
   {
@@ -805,18 +841,30 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
    }
   }
 
+  //if(IsWrite && (A & 0x100000) && SH32)
+  //{
+  // assert(0);
+  //}
+
   if(time_thing != NULL)
   {
    if(IsWrite)
-    *time_thing += SH32 ? 0 : 11;
+    BBus_SH2_WriteFinishTS += SH32 ? ((A & 0x100000) ? 0 : 1) : 9;
    else
+   {
     *time_thing += 14;
+   }
 
    CheckEventsByMemTS();
   }
 
   if(IsWrite)
   {
+   if(time_thing != NULL)
+    VDP1::Write_CheckDrawSlowdown(A, *time_thing);
+   else if(sh2_dma_time_thing != NULL)
+    VDP1::Write_CheckDrawSlowdown(A, *sh2_dma_time_thing);
+
    if(sizeof(T) == 1)
     VDP1::Write8_DB(A, *DB);
    else
@@ -824,6 +872,11 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
   }
   else
   {
+   if(time_thing != NULL)
+    VDP1::Read_CheckDrawSlowdown(A, *time_thing);
+   else if(sh2_dma_time_thing != NULL)
+    VDP1::Read_CheckDrawSlowdown(A, *sh2_dma_time_thing);
+
    *DB = VDP1::Read16_DB(A);
   }
 
@@ -836,17 +889,19 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  if(A >= 0x05E00000 && A <= 0x05FBFFFF)
  {
   if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= IsWrite ? (SH32 ? 0 : 5) : 10;
+   *sh2_dma_time_thing += IsWrite ? (SH32 ? 0 : 5) : 10;
 
   if(dma_time_thing != NULL)
   {
    *dma_time_thing -= 1;
+   //if(A & 0x00100000)
+   // *dma_time_thing -= 1;
   }
 
   if(time_thing != NULL)
   {
    if(IsWrite)
-    *time_thing += SH32 ? 0 : 5;
+    BBus_SH2_WriteFinishTS += SH32 ? 1 : 3;
    else
     *time_thing += 20;
 
@@ -884,7 +939,7 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  if(A >= 0x05A00000 && A <= 0x05BFFFFF)
  {
   if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= 13;
+   *sh2_dma_time_thing += 13;
 
   if(dma_time_thing != NULL)
   {
@@ -894,7 +949,7 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
   if(time_thing != NULL)
   {
    if(IsWrite)
-    *time_thing += SH32 ? 13 : 19;
+    BBus_SH2_WriteFinishTS += SH32 ? 13 : 17;
    else
     *time_thing += 24;
   }
@@ -915,19 +970,13 @@ static INLINE void BBusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  //
  //
  if(sh2_dma_time_thing != NULL)
-  *sh2_dma_time_thing -= 1;
+  *sh2_dma_time_thing += 1;
 
  if(dma_time_thing != NULL)
   *dma_time_thing -= 1;
 
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[B-Bus] Unknown %zu-byte write of 0x%08x(DB=0x%04x)\n", sizeof(T), A, *DB);
- else
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[B-Bus] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
-
+ if(!IsWrite)
   *DB = 0;
- }
 }
 
 template<typename T, bool IsWrite, bool SH32 = false>
@@ -938,13 +987,38 @@ static INLINE void ABusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  //
  if(A >= 0x02000000 && A <= 0x04FFFFFF)
  {
-  // [(bool)(A & 0x04000000)]
+  {
+   const unsigned buscfg = ASR0 >> ((A & 0x04000000) ? 0 : 16);
 
-  if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= 1;	// TODO
+   if(time_thing != NULL)
+   {
+    if(!IsWrite && ((buscfg >> 15) & 0x1))
+    {
+     // TODO/FIXME
+     *time_thing += 2;
+    }
+    else
+    {
+     if(!SH32 || !((buscfg >> 2) & 0x3))
+      *time_thing += 5 + ((buscfg >> 4) & 0xF) + ((buscfg >> (13 + IsWrite)) & 1);
+     else
+      *time_thing += 2 + ((buscfg >> 8) & 0xF);
+    }
+   }
 
-  if(dma_time_thing != NULL)
-   *dma_time_thing -= 1;	// TODO
+   // TODO: SCU seems to have its own internal write buffering...or something else complex going on, that complicates
+   // getting the SH-2 DMA timing right. 
+   if(sh2_dma_time_thing != NULL)
+    *sh2_dma_time_thing += 1;
+
+   if(dma_time_thing != NULL)
+   {
+    if((buscfg >> 2) & 0x3)
+     *dma_time_thing -= 2 + ((buscfg >> 8) & 0xF);
+    else
+     *dma_time_thing -= 5 + ((buscfg >> 4) & 0xF) + ((buscfg >> (13 + IsWrite)) & 1);
+   }
+  }
 
   if(IsWrite)
   {
@@ -965,19 +1039,12 @@ static INLINE void ABusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  if(MDFN_UNLIKELY(A >= 0x05000000 && A <= 0x057FFFFF))
  {
   if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= 16;
+   *sh2_dma_time_thing += 16;
 
   if(dma_time_thing != NULL)
   {
    *dma_time_thing -= 16;
   }
-
-#ifdef HAVE_DEBUG
-  if(IsWrite)
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[A-Bus CSD] Unknown %zu-byte write to 0x%08x(DB=0x%04x)\n", sizeof(T), A, *DB);
-  else
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[A-Bus CSD] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
-#endif
 
   return;
  }
@@ -989,7 +1056,7 @@ static INLINE void ABusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  if(A >= 0x05800000 && A <= 0x058FFFFF)
  {
   if(sh2_dma_time_thing != NULL)
-   *sh2_dma_time_thing -= 8;
+   *sh2_dma_time_thing += 8;
 
   if(dma_time_thing != NULL)
   {
@@ -1035,17 +1102,10 @@ static INLINE void ABusRW_DB(uint32 A, uint16* DB, int32* time_thing, int32* dma
  }
 
  if(sh2_dma_time_thing != NULL)
-  *sh2_dma_time_thing -= 1;
+  *sh2_dma_time_thing += 1;
 
  if(dma_time_thing != NULL)
   *dma_time_thing -= 1;
-
-#ifdef HAVE_DEBUG
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[A-Bus] Unknown %zu-byte write to 0x%08x(DB=0x%04x)\n", sizeof(T), A, *DB);
- else
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[A-Bus] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
-#endif
 }
 
 template<typename T>
@@ -1167,13 +1227,6 @@ static INLINE void SCU_FromSH2_BusRW_DB(uint32 A, uint32* DB, int32* SH2DMAHax)
  // return 0;
  //}
 
-#ifdef HAVE_DEBUG
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SH2->SCU BUS] Unknown %zu-byte write to 0x%08x(DB=0x%08x)\n", sizeof(T), A, *DB);
- else
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SH2->SCU BUS] Unknown %zu-byte read from 0x%08x\n", sizeof(T), A);
-#endif
-
  if(!SH2DMAHax)
   SH7095_mem_timestamp += IsWrite ? 4 : 7;
  else
@@ -1208,6 +1261,16 @@ static uint32 DMA_ReadBBus(uint32 offset)
 
 static uint32 DMA_ReadCBus(uint32 offset)
 {
+ //
+ // TODO: Determine the nature of this slowdown/overhead.
+ //
+ SCU_DMA_SDRAM_Slowdown_Counter++;
+ if(SCU_DMA_SDRAM_Slowdown_Counter >= 31)
+ {
+  SCU_DMA_SDRAM_Slowdown_Counter = 0;
+  SCU_DMA_ReadOverhead -= 6;
+ }
+
  return ne16_rbo_be<uint32>(WorkRAMH, offset & 0xFFFFC);
 }
 
@@ -1236,45 +1299,14 @@ static bool StartDMATransfer(DMALevelS* d, const uint32 ra, const uint32 wa, con
  rb = AddressToBus(ra);
  wb = AddressToBus(wa);
 
-#ifdef HAVE_DEBUG
- SS_DBGTI(SS_DBG_SCU, "[SCU] Starting DMA level %d transfer; ra=0x%08x wa=0x%08x bc=0x%08x - read_inc=%d write_inc=0x%01x - indirect=%d %d", (int)(d - DMALevel), ra, wa, bc, d->ReadAdd, d->WriteAdd, d->Indirect, d->SF);
-#endif
-
  if(MDFN_UNLIKELY(rb == -1))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Attempted DMA from illegal address 0x%08x\n", ra);
   return false;
- }
 
  if(MDFN_UNLIKELY(wb == -1))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Attempted DMA to illegal address 0x%08x\n", wa);
   return false;
- }
 
  if(MDFN_UNLIKELY(rb == wb))
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Attempted illegal same-bus DMA from 0x%08x to 0x%08x\n", ra, wa);
   return false;
- }
-
- //
- //
- //
-#ifdef HAVE_DEBUG
- if((wa & 0x1) && wb == 1 && d->WriteAdd != 0x1)
- {
-  //
-  // This sort of DMA is buggy on real hardware in weird ways(like the bus state controller is getting seriously confused), which we don't emulate.
-  //
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Sketchy DMA of 0x%08x bytes from 0x%08x to unaligned B-bus address 0x%08x with write add value 0x%02x\n", bc, ra, wa, d->WriteAdd);
- }
-
- if(wb == 0)
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Possibly sketchy DMA of 0x%08x bytes from 0x%08x to A-bus address 0x%08x\n", bc, ra, wa);
- }
-#endif
 
  d->CurReadBase = ra &~ 0x3;
  d->CurReadSub = ra & 0x3;
@@ -1300,10 +1332,6 @@ static bool NextIndirect(DMALevelS* d)
 {
  // count, dest, src
  uint32 tmp[3];
-
-#ifdef HAVE_DEBUG
- SS_DBG(SS_DBG_SCU, "[SCU] DMA level %d reading indirect table entries @ 0x%08x\n", (int)(d - DMALevel), d->CurTableAddr);
-#endif
 
  for(unsigned i = 0; i < 3; i++)
  {
@@ -1355,24 +1383,6 @@ static void RecalcDMAHalt(void)
   {
    if(d->WriteBus == 2 || d->ReadFunc == DMA_ReadCBus)
     Halted = true;
-#if 1
-   //
-   // TODO: See how halting works when a higher-priority DMA A-bus<->B-bus is running at the same time as a lower priority A/B-bus<->C-bus DMA.
-   //	    For now, just print a warning message if such a situation occurs.
-   else
-   {
-    for(int sl = level - 1; sl >= 0; sl--)
-    {
-     DMALevelS* sld = &DMALevel[sl];
-#ifdef HAVE_DEBUG
-     if(sld->Active && (sld->WriteBus == 2 || sld->ReadFunc == DMA_ReadCBus))
-     {
-      SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Higher priority A-bus<->B-bus DMA(level %d) running while lower-priority A-/B-bus<->C-bus DMA(level %d) is pending.\n", level, sl);
-     }
-#endif
-    }
-   }
-#endif
    break;
   }
  }
@@ -1400,8 +1410,7 @@ static void CheckDMAStart(DMALevelS* d)
    d->CurTableAddr = d->StartWriteAddr & 0x07FFFFFC;	// Tested, lower 2 bits are 0 on DMA end when write address update enabled.
    tb = AddressToBus(d->CurTableAddr);
 
-   if(tb < 0)
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Invalid DMA indirect mode table address 0x%08x\n", d->CurTableAddr);
+   if(tb < 0) { }
    else
    {
     d->TableReadFunc = rftab[tb];
@@ -1620,10 +1629,6 @@ static NO_INLINE void ForceDMAFinish(void)
   if(!DMALevel[level].Active)
    continue;
 
-#ifdef HAVE_DEBUG
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] Forcing hacky early DMA level %d completion.\n", level);
-#endif
-
   if(DMALevel[level].Active > 0)
   {
    const sscpu_timestamp_t rus = SCU_DMA_RunUntil;
@@ -1733,7 +1738,7 @@ static void DSP_Reset(bool powering_up)
   DSP.PRAMDMABuf[i] = 0;
 }
 
-void DSP_Init(void)
+MDFN_COLD void DSP_Init(void)
 {
  DSP.LastTS = 0;
 
@@ -1755,8 +1760,6 @@ void DSP_Init(void)
 
 void DSP_FinishPRAMDMA(void)
 {
- //SS_DBG(SS_DBG_SCU_DSP, "[SCU] Finishing %u-count DMA to program RAM; PC=0x%02x, TOP=0x%02x\n", DSP.PRAMDMABufCount, DSP.PC, DSP.TOP);
-
  if(DSP.T0_Until < DSP.CycleCounter)
   DSP.CycleCounter = DSP.T0_Until &~ 1;
  DSP.T0_Until = DSP.CycleCounter;
@@ -1779,11 +1782,7 @@ static NO_INLINE NO_CLONE void DMAInstr(void)
 
  if(DSP.T0_Until < DSP.CycleCounter)
  {
-#ifdef HAVE_DEBUG
   // TODO: Rework how DSP DMA is handled if this condition occurs with the same data RAM bank in any games.
-  if(format)
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU_DSP, "[SCU] Executing DSP DMA instruction 0x%08x before previous DMA has finished!\n", instr);
-#endif
 
   DSP.CycleCounter = DSP.T0_Until &~ 1;
  }
@@ -1802,9 +1801,6 @@ static NO_INLINE NO_CLONE void DMAInstr(void)
   count = instr & 0xFF;
 
  //printf("%02x %08x Count: %u\n", DSP.PC, instr, count);
-#ifdef HAVE_DEBUG
- SS_DBG(SS_DBG_SCU_DSP, "[SCU] DSP DMA; looped=%u, add_mode=0x%01x, hold=%u, format=%u, dir=%u, drw=0x%02x -- count=%u, RAO<<2=0x%08x, WAO<<2=0x%08x\n", looped, add_mode, hold, format, dir, drw, count, DSP.RAO << 2, DSP.WAO << 2);
-#endif
 
  if(dir)
  {
@@ -1814,7 +1810,6 @@ static NO_INLINE NO_CLONE void DMAInstr(void)
 
   if(MDFN_UNLIKELY(WriteBus == -1))
   {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU | SS_DBG_SCU_DSP, "[SCU] Bad DSP DMA to 0x%08x --- Instr=0x%08x, Next_Instr=0x%08x, PC=0x%02x\n", addr, instr, (unsigned)(DSP.NextInstr >> 32), DSP.PC);
    return;
   }
 
@@ -1870,12 +1865,8 @@ static NO_INLINE NO_CLONE void DMAInstr(void)
 
   if(MDFN_UNLIKELY(ReadBus == -1))
   {
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCU | SS_DBG_SCU_DSP, "[SCU] Bad DSP DMA from 0x%08x --- Instr=0x%08x, Next_Instr=0x%08x, PC=0x%02x\n", addr, instr, (unsigned)(DSP.NextInstr >> 32), DSP.PC);
    return;
   }
-
-  //if(drw & 0x4)
-  // SS_DBG(SS_DBG_WARNING | SS_DBG_SCU | SS_DBG_SCU_DSP, "[SCU] DSP DMA from 0x%08x to %s --- Instr=0x%08x, Next_Instr=0x%08x, PC=0x%02x\n", addr, ((drw == 0x4) ? "program RAM" : "unknown"), instr, (unsigned)(DSP.NextInstr >> 32), DSP.PC);
 
   DSP.PRAMDMABufCount = 0;
 
@@ -1929,7 +1920,7 @@ static NO_INLINE NO_CLONE void DMAInstr(void)
  }
 }
 
-extern void (*const DSP_DMAFuncTable[2][8][8])(void) =
+MDFN_HIDE extern void (*const DSP_DMAFuncTable[2][8][8])(void) =
 {
  #include "scu_dsp_dmatab.inc"
 };
@@ -1938,13 +1929,15 @@ extern void (*const DSP_DMAFuncTable[2][8][8])(void) =
 //
 //
 
-static void SCU_Init(void)
+static MDFN_COLD void SCU_Init(void)
 {
  SCU_DMA_TimeCounter = 0;
  SCU_DMA_RunUntil = 0;
  IAsserted = 0;
  HB_FromVDP2 = false;
  VB_FromVDP2 = false;
+
+ BBus_SH2_WriteFinishTS = 0;
 
  DSP_Init();
 }
@@ -1955,8 +1948,28 @@ void SCU_Reset(bool powering_up)
  IMask = 0xBFFF;
  IPending = 0;
  ABusIProhibit = 0;
+ ASR0 = 0;
+ ASR1 = 0;
+ AREF = 0;
  RSEL = 0;
+ //
+ //
+ if(powering_up)
+ {
+  // TODO: check if only power-on, or reset too.
+  Timer0_Counter = 0;
+  Timer0_Compare = 0;
+  Timer0_Met = false;
 
+  Timer1_Reload = 0;
+  Timer1_Counter = 0;
+  Timer1_Mode = 0;
+  Timer1_Met = false;
+
+  Timer_Enable = false;
+ }
+ //
+ //
  if(powering_up)
   memset(DMALevel, 0x00, sizeof(DMALevel));
 
@@ -1972,7 +1985,7 @@ void SCU_Reset(bool powering_up)
   d.Indirect = false;
   d.ReadUpdate = false;
   d.WriteUpdate = false;
-  d.SF = 0;
+  d.SF = 0x7;
 
   d.WATable = &dma_write_tab.acb[0][0][0][0][0];
   d.ReadFunc = rftab[0];
@@ -1980,14 +1993,17 @@ void SCU_Reset(bool powering_up)
  }
  //SCU_DMA_CycleCounter = 0;
  SCU_DMA_ReadOverhead = 0;
+ 
+ SCU_DMA_SDRAM_Slowdown_Counter = 0;
 
  SCU_DMA_VDP1WriteIgnoreKludge = 0;
 
  RecalcDMAHalt();
 
  DSP_Reset(powering_up);
-
- RecalcMasterIntOut();
+ //
+ //
+ CPU[0].SetIRL(ILevel);
 }
 
 static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const bool data_only)
@@ -2068,14 +2084,19 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
   SFVAR(SCU_DMA_TimeCounter),
   SFVAR(SCU_DMA_RunUntil),
   SFVAR(SCU_DMA_ReadOverhead),
-
+  SFVAR(SCU_DMA_SDRAM_Slowdown_Counter),
   SFVAR(SCU_DMA_VDP1WriteIgnoreKludge),
+
+  SFVAR(BBus_SH2_WriteFinishTS),
 
   SFVAR(IAsserted),
   SFVAR(IPending),
   SFVAR(IMask),
 
   SFVAR(ABusIProhibit),
+  SFVAR(ASR0),
+  SFVAR(ASR1),
+  SFVAR(AREF),
   SFVAR(RSEL),
 
   SFVAR(ILevel),
@@ -2142,7 +2163,7 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
   {
    if(d.TableReadFunc == rftab[trb])
    {
-    DMALevel_ReadFunc[level] = trb;
+    DMALevel_TableReadFunc[level] = trb;
     break;
    }
   }
@@ -2150,11 +2171,22 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
  //
  //
  //
+ if(load)
+ {
+  // For old save states that didn't save these variables.
+  ASR0 = 0x03301FF0;
+  ASR1 = 0x10001FF0;
+  AREF = 0x13;
+  RSEL = 0x1;
+ }
 
  MDFNSS_StateAction(sm, load, data_only, StateRegs, "SCU", false);
 
  if(load)
  {
+  ILevel &= 0xF;
+  //
+  //
   for(unsigned i = 0; i < 256; i++)
    DSP.ProgRAM[i] = DSP_DecodeInstruction(DSP_ProgRAM[i]);
 
@@ -2185,31 +2217,32 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
 
    d.ReadAdd &= 0x1;
    d.WriteAdd &= 0x7;
-   
+
+   d.WriteBus %= 3;
    //
    //
    {
     bool which = DMALevel_WATable[level] >> 31;
     uint32 index = DMALevel_WATable[level] & 0x7FFFFFFF;
 
-    if(index >= dwt_counts[which]) // || !dwt_ptrs[which][index].write_size)
-     printf("bad watable %08x %zu %08x\n", DMALevel_WATable[level], dwt_counts[which], dwt_ptrs[which][index].write_size);
-    else
+    if(index < dwt_counts[which]) // || !dwt_ptrs[which][index].write_size)
      d.WATable = dwt_ptrs[which] + index;
    }
 
-   if(DMALevel_ReadFunc[level] >= 3)
-    printf("bad readfunc: %02x\n", DMALevel_ReadFunc[level]);
-   else
+   if(DMALevel_ReadFunc[level] < 3)
     d.ReadFunc = rftab[DMALevel_ReadFunc[level]];
 
    if(DMALevel_TableReadFunc[level] == 0xFF)
     d.TableReadFunc = NULL;
    else if(DMALevel_TableReadFunc[level] < 3)
     d.TableReadFunc = rftab[DMALevel_TableReadFunc[level]];
-   else
-    printf("bad tablereadfunc: %02x\n", DMALevel_TableReadFunc[level]);
   }
+  //
+  //
+  Timer0_Counter &= 0x1FF;
+  Timer0_Compare &= 0x3FF;
+  Timer1_Counter &= 0x1FF;
+  Timer1_Reload &= 0x1FF;
  }
 }
 
@@ -2221,7 +2254,7 @@ static MDFN_COLD void SCU_StateAction(StateMem* sm, const unsigned load, const b
 //
 //
 //
-uint32 SCU_DSP_PeekProgRAM(uint8 A)
+MDFN_COLD uint32 SCU_DSP_PeekProgRAM(uint8 A)
 {
  return DSP.ProgRAM[A] >> 32;
 }
@@ -2251,7 +2284,42 @@ uint32 SCU_GetRegister(const unsigned id, char* const special, const uint32 spec
   case SCU_GSREG_IMASK:
 	ret = IMask;
 	break;
+  //
+  //
+  //
+  case SCU_GSREG_D0MD:
+  case SCU_GSREG_D1MD:
+  case SCU_GSREG_D2MD:
+	{
+	 auto& d = DMALevel[id - SCU_GSREG_D0MD];
 
+	 ret = (d.Indirect << 24) | (d.ReadUpdate << 16) | (d.WriteUpdate << 8) | (d.SF << 0);
+	}
+	break;
+  //
+  //
+  //
+  case SCU_GSREG_ASR0_CS0:
+  case SCU_GSREG_ASR0_CS1:
+  case SCU_GSREG_ASR1_CS2:
+  case SCU_GSREG_ASR1_CSD:
+	{
+	 const unsigned v[4] = { (uint16)(ASR0 >> 16), (uint16)(ASR0 >> 0), (uint16)(ASR1 >> 16), (uint16)(ASR1 >> 0) };
+
+	 ret = v[id - SCU_GSREG_ASR0_CS0];
+	}
+	break;
+
+  case SCU_GSREG_AREF:
+	ret = AREF;
+	break;
+
+  case SCU_GSREG_RSEL:
+	ret = RSEL;
+	break;
+  //
+  //
+  //
   case SCU_GSREG_T0CNT:
 	ret = Timer0_Counter;
 	break;
@@ -2315,6 +2383,32 @@ void SCU_SetRegister(const unsigned id, const uint32 value)
 	IMask = value & 0xBFFF;
 	break;
   //
+  //
+  case SCU_GSREG_ASR0_CS0:
+	ASR0 = (ASR0 & 0x0000FFFF) | ((value & 0xFFFD) << 16);
+	break;
+  
+  case SCU_GSREG_ASR0_CS1:
+	ASR0 = (ASR0 & 0xFFFF0000) | ((value & 0xFFFD) <<  0);
+	break;
+
+  case SCU_GSREG_ASR1_CS2:
+	ASR1 = (ASR1 & 0x0000FFFF) | ((value & 0xF00D) << 16);
+	break;
+
+  case SCU_GSREG_ASR1_CSD:
+	ASR1 = (ASR1 & 0xFFFF0000) | ((value & 0xFFFD) <<  0);
+	break;
+
+  case SCU_GSREG_AREF:
+	AREF = value & 0x1F;
+	break;
+
+  case SCU_GSREG_RSEL:
+	RSEL = value & 0x1;
+	break;
+  //
+  //
   case SCU_GSREG_T0CNT:
 	//Timer0_Counter = value & 0x1FF;
 	break;
@@ -2357,6 +2451,6 @@ void SCU_SetRegister(const unsigned id, const uint32 value)
  SCU_SetHBVB(0, HB_FromVDP2, VB_FromVDP2);
 #endif
 
- RecalcMasterIntOut();
+ if(CheckDoMasterInt())
+  CPU[0].SetIRL(ILevel);
 }
-

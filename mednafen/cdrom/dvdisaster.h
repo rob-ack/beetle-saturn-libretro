@@ -117,11 +117,6 @@ void FreeReedSolomonTables(ReedSolomonTables*);
 #define P_PADDING 229         /* padding values for */
 #define Q_PADDING 210         /* shortened RS code  */
 
-int PToByteIndex(int, int);
-int QToByteIndex(int, int);
-void ByteIndexToP(int, int*, int*);
-void ByteIndexToQ(int, int*, int*);
-
 void GetPVector(unsigned char*, unsigned char*, int);
 void SetPVector(unsigned char*, unsigned char*, int);
 void FillPVector(unsigned char*, unsigned char, int);
@@ -135,20 +130,6 @@ void AndQVector(unsigned char*, unsigned char, int);
 void OrQVector(unsigned char*, unsigned char, int);
 
 int DecodePQ(ReedSolomonTables*, unsigned char*, int, int*, int);
-
-int CountC2Errors(unsigned char*);
-
-/***
- *** misc.c 
- ***/
-
-char* sgettext(char*);
-char* sgettext_utf8(char*);
-
-int64_t uchar_to_int64_t(unsigned char*);
-void int64_t_to_uchar(unsigned char*, int64_t);
-
-void CalcSectors(int64_t, int64_t*, int*);
 
 /***
  *** recover-raw.c

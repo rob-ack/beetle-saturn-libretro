@@ -56,7 +56,6 @@
 extern "C" {
 #endif
 
-int read32le(uint32_t *Bufo, FILE *fp);
 void Endian_A16_Swap(void *src, uint32_t nelements);
 void Endian_A32_Swap(void *src, uint32_t nelements);
 void Endian_A64_Swap(void *src, uint32_t nelements);
@@ -80,14 +79,6 @@ static inline void MDFN_en16lsb(uint8_t *buf, uint16_t morp)
  buf[1]=morp>>8;
 }
 
-static inline void MDFN_en24lsb(uint8_t *buf, uint32_t morp)
-{
- buf[0]=morp;
- buf[1]=morp>>8;
- buf[2]=morp>>16;
-}
-
-
 static inline void MDFN_en32lsb(uint8_t *buf, uint32_t morp)
 {
  buf[0]=morp;
@@ -96,30 +87,10 @@ static inline void MDFN_en32lsb(uint8_t *buf, uint32_t morp)
  buf[3]=morp>>24;
 }
 
-static inline void MDFN_en64lsb(uint8_t *buf, uint64_t morp)
-{
- buf[0]=morp >> 0;
- buf[1]=morp >> 8;
- buf[2]=morp >> 16;
- buf[3]=morp >> 24;
- buf[4]=morp >> 32;
- buf[5]=morp >> 40;
- buf[6]=morp >> 48;
- buf[7]=morp >> 56;
-}
-
-
 static inline void MDFN_en16msb(uint8_t *buf, uint16_t morp)
 {
  buf[0] = morp >> 8;
  buf[1] = morp;
-}
-
-static inline void MDFN_en24msb(uint8_t *buf, uint32_t morp)
-{
- buf[0] = morp >> 16;
- buf[1] = morp >> 8;
- buf[2] = morp;
 }
 
 static inline void MDFN_en32msb(uint8_t *buf, uint32_t morp)
@@ -145,11 +116,6 @@ static inline void MDFN_en64msb(uint8_t *buf, uint64_t morp)
 static inline uint16_t MDFN_de16lsb(const uint8_t *morp)
 {
  return(morp[0] | (morp[1] << 8));
-}
-
-static inline uint32_t MDFN_de24lsb(const uint8_t *morp)
-{
- return(morp[0]|(morp[1]<<8)|(morp[2]<<16));
 }
 
 static inline uint32_t MDFN_de32lsb(const uint8_t *morp)
@@ -418,42 +384,6 @@ static INLINE void ne64_rwbo_be(BT base, const size_t byte_offset, T* value)
   ne64_wbo_be<T>(base, byte_offset, *value);
  else
   *value = ne64_rbo_be<T>(base, byte_offset);
-}
-//
-//
-//
-template<typename T, typename BT>
-static INLINE void ne64_wbo_le(BT base, const size_t byte_offset, const T value)
-{
- static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8, "Unsupported type size");
- static_assert(std::is_same<BT, uintptr_t>::value || std::is_convertible<BT, uint64*>::value, "Wrong base type");
-
- uintptr_t const ptr = neX_ptr_le<T, uint64>((uintptr_t)base, byte_offset);
-
- memcpy(MDFN_ASSUME_ALIGNED((void*)ptr, alignof(T)), &value, sizeof(T));
-}
-
-template<typename T, typename BT>
-static INLINE T ne64_rbo_le(BT base, const size_t byte_offset)
-{
- static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8, "Unsupported type size");
- static_assert(std::is_same<BT, uintptr_t>::value || std::is_convertible<BT, const uint64*>::value, "Wrong base type");
-
- uintptr_t const ptr = neX_ptr_le<T, uint64>((uintptr_t)base, byte_offset);
- T ret;
-
- memcpy(&ret, MDFN_ASSUME_ALIGNED((void*)ptr, alignof(T)), sizeof(T));
-
- return ret;
-}
-
-template<typename T, bool IsWrite, typename BT>
-static INLINE void ne64_rwbo_le(BT base, const size_t byte_offset, T* value)
-{
- if(IsWrite)
-  ne64_wbo_le<T>(base, byte_offset, *value);
- else
-  *value = ne64_rbo_le<T>(base, byte_offset);
 }
 
 #endif /* C++ only */

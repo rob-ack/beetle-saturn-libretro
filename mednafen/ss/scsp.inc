@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* scsp.inc - SCSP Emulation
-**  Copyright (C) 2015-2017 Mednafen Team
+**  Copyright (C) 2015-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -21,10 +21,17 @@
 
 /*
  TODO:
-	Open bus emulation and cycle timing granularity instead of sample(someday?); be careful with DSP input/output buffering
-	with respect to dry/direct output path delay, and the mapping of the buffers to the address space.
+	Test the relative timing between timers, LFO, EG, and the DSP ringbuffer position.
 
-	Finish MIDI interface emulation.
+	Open bus or something seems to get into the audio when a slot's playback ends by loop end, but not by env level being max, under
+	certain conditions when the 68K is running.  Test further, maybe emulate in the future?
+
+	Open bus emulation and cycle timing granularity instead of sample(someday?); be careful with DSP input/output buffering
+	with respect to dry/direct output path delay, and the mapping of the buffers to the address space.  Emulating the extra wait
+	states on 68K accesses caused by PCM playback and DSP memory accesses may be required to fix the problem of game music playing back
+	a very teensy bit too fast.
+
+	Hook up MIDI interface emulation to the outside somehow.
 
 	Proper reset/power-on state.
 
@@ -37,11 +44,9 @@
 	DSP: Test IWT=1 when MRT=0 and MWT=1 for the intruction a couple back.
 */
 
-#include "ss_endian.h"
-
 SS_SCSP::SS_SCSP()
 {
- memset(&RAM[0x40000], 0x00, 0x80000);	// Zero out dummy part.
+ memset(&RAM[0x40000], 0x00, 0x40000 * sizeof(uint16));	// Zero out dummy part.
 
  Reset(true);
 }
@@ -62,39 +67,41 @@ void SS_SCSP::RecalcSoundInt(void)	// Sound CPU interrupts
  if(mask_test &~ 0xFF)
   mask_test = (mask_test & 0xFF) | 0x80;
 
- lvmasked[0] = (SCILV[0] & mask_test) << 0;
- lvmasked[1] = (SCILV[1] & mask_test) << 1;
- lvmasked[2] = (SCILV[2] & mask_test) << 2;
+ lvmasked[0] = SCILV[0] & mask_test;
+ lvmasked[1] = SCILV[1] & mask_test;
+ lvmasked[2] = SCILV[2] & mask_test;
 
- for(unsigned i = 0; i < 8; i++)
+ if(lvmasked[2])
  {
-  unsigned l = (lvmasked[0] & 0x1) | (lvmasked[1] & 0x2) | (lvmasked[2] & 0x4);
-
-  if(l > out_level)
-   out_level = l;
-
-  lvmasked[0] >>= 1;
-  lvmasked[1] >>= 1;
-  lvmasked[2] >>= 1;
+  out_level |= 0x4;
+  lvmasked[1] &= lvmasked[2];
+  lvmasked[0] &= lvmasked[2];
  }
 
- SCSP_SoundIntChanged(out_level);
-#if 0
- if(mask_test)
+ if(lvmasked[1])
  {
-  const unsigned shift = std::min<unsigned>(7, MDFN_tzcount32(mask_test));
-  unsigned level;
-
-  level = (((SCILV[0] >> which) & 0x1) << 0) |
-	  (((SCILV[1] >> which) & 0x1) << 1) |
-	  (((SCILV[2] >> which) & 0x1) << 2);
+  out_level |= 0x2;
+  lvmasked[0] &= lvmasked[1];
  }
-#endif
+
+ out_level |= (bool)lvmasked[0];
+ //
+ //
+ SCSP_SoundIntChanged(this, out_level);
 }
 
 void SS_SCSP::RecalcMainInt(void)	// Main CPU interrupts
 {
- SCSP_MainIntChanged((bool)(MCIPD & MCIEB));
+ SCSP_MainIntChanged(this, (bool)(MCIPD & MCIEB));
+}
+
+INLINE void SS_SCSP::RecalcShortWaveMask(Slot* s)
+{
+ const unsigned lev = s->LoopEnd & 0x780;
+
+ s->ShortWaveMask = 0xFFFFFFFF;
+ if(s->ShortWave && lev)
+  s->ShortWaveMask = (1U << MDFN_tzcount16(lev)) - 1;
 }
 
 void SS_SCSP::Reset(bool powering_up)
@@ -114,14 +121,20 @@ void SS_SCSP::Reset(bool powering_up)
   Slots[i].EnvPhase = ENV_PHASE_RELEASE;
 
   Slots[i].LFOTimeCounter = 1;
+  //
+  RecalcShortWaveMask(&Slots[i]);
  }
+
+ for(unsigned i = 0; i < 2; i++)
+  EXTS[i] = 0;
 
  memset(SoundStack, 0, sizeof(SoundStack));
  memset(SoundStackDelayer, 0, sizeof(SoundStackDelayer));
 
  if(powering_up)
  {
-  memset(RAM, 0x00, 0x80000);	// or something else?
+  for(size_t i = 0; i < 0x40000; i++)
+   RAM[i] = 0x0000; // or some other value?
  }
 
  //
@@ -139,7 +152,7 @@ void SS_SCSP::Reset(bool powering_up)
  LFSR = 1;
  GlobalCounter = 0;
 
- MIDI.Reset();
+ MIDI_Reset();
  //
  //
  DMEA = 0;
@@ -155,7 +168,7 @@ void SS_SCSP::Reset(bool powering_up)
  {
   Timers[i].Control = 0;
   Timers[i].Counter = 0;
-  Timers[i].PrevClockIn = false;
+  Timers[i].Reload = -1;
  }
 
  //
@@ -179,6 +192,135 @@ void SS_SCSP::Reset(bool powering_up)
  RecalcSoundInt();
  RecalcMainInt();
 }
+
+//
+//
+//
+INLINE uint8 SS_SCSP::MIDI_ReadInput(void)
+{
+ uint8 ret = MIDI.InputFIFO[MIDI.InputRP]; // TODO: May not be correct for InputCount == 0; test.
+
+ if(MIDI.InputCount)
+ {
+  //printf("MIDI Read: %02x\n", ret);
+
+  MIDI.InputRP = (MIDI.InputRP + 1) & 0x3;
+  MIDI.InputCount--;
+  MIDI.Flags &= ~MIDIF_INPUT_FULL;
+  MIDI.Flags &= ~MIDIF_INPUT_OFLOW; // TODO: Test.
+
+  if(!MIDI.InputCount)
+  {
+   MIDI.Flags |= MIDIF_INPUT_EMPTY;
+ 
+   SCIPD &= ~0x008;
+   MCIPD &= ~0x008;
+   RecalcSoundInt();
+   RecalcMainInt();
+  }
+ }
+
+ return ret;
+}
+
+void SS_SCSP::MIDI_WriteInput(uint8 V)
+{
+ if(MIDI.InputCount == 4)
+ {
+  MIDI.Flags |= MIDIF_INPUT_OFLOW;
+  return;
+ }
+ //printf("MIDI Write: %02x\n", V);
+
+ MIDI.InputFIFO[MIDI.InputWP] = V;
+ MIDI.InputWP = (MIDI.InputWP + 1) & 0x3;
+ MIDI.InputCount++;
+
+ MIDI.Flags &= ~MIDIF_INPUT_EMPTY;
+ if(MIDI.InputCount == 4)
+  MIDI.Flags |= MIDIF_INPUT_FULL;
+
+ SCIPD |= 0x008;
+ MCIPD |= 0x008;
+ RecalcSoundInt();
+ RecalcMainInt();
+}
+
+INLINE void SS_SCSP::MIDI_WriteOutput(uint8 V)
+{
+ if(MIDI.OutputCount == 4)	// TODO: See if write is completely discarded, or replaces last entry in FIFO.
+  return;
+
+ MIDI.OutputFIFO[MIDI.OutputWP] = V;
+ MIDI.OutputWP = (MIDI.OutputWP + 1) & 0x3;
+ MIDI.OutputCount++;
+
+ MIDI.Flags &= ~MIDIF_OUTPUT_EMPTY;
+ if(MIDI.OutputCount == 4)
+  MIDI.Flags |= MIDIF_OUTPUT_FULL;
+
+ SCIPD &= ~0x200;
+ MCIPD &= ~0x200;
+ RecalcSoundInt();
+ RecalcMainInt();
+}
+
+INLINE void SS_SCSP::MIDI_Run(void)
+{
+ MIDI.SimuClockDivider += 32;
+ if(MIDI.SimuClockDivider >= 45)
+ {
+  MIDI.SimuClockDivider -= 45;
+
+  if(!MIDI.TransmitBitCounter)
+  {
+   if(MIDI.OutputCount)
+   {
+    //printf("Transmit\n");
+    MIDI.TransmitBitCounter = 10;
+    MIDI.TransmitBuffer = (uint32)(MIDI.OutputFIFO[MIDI.OutputRP] | ~0xFF) << 1;
+    MIDI.OutputRP = (MIDI.OutputRP + 1) & 0x3;
+    MIDI.OutputCount--;
+
+    MIDI.Flags &= ~MIDIF_OUTPUT_FULL;
+    if(!MIDI.OutputCount)
+    {
+     MIDI.Flags |= MIDIF_OUTPUT_EMPTY;
+
+     SCIPD |= 0x200;
+     MCIPD |= 0x200;
+     RecalcSoundInt();
+     RecalcMainInt();
+    }
+   }
+  }
+
+  MIDI.TransmitBitCounter -= (bool)MIDI.TransmitBitCounter;
+ }
+}
+
+INLINE void SS_SCSP::MIDI_Reset(void)
+{
+ memset(MIDI.InputFIFO, 0, sizeof(MIDI.InputFIFO));
+ memset(MIDI.OutputFIFO, 0, sizeof(MIDI.OutputFIFO));
+
+ MIDI.InputRP = MIDI.InputWP = MIDI.InputCount = 0;
+ MIDI.OutputRP = MIDI.OutputWP = MIDI.OutputCount = 0;
+
+ MIDI.Flags = MIDIF_INPUT_EMPTY | MIDIF_OUTPUT_EMPTY;
+
+ MIDI.SimuClockDivider = 0;
+ MIDI.TransmitBitCounter = 0;
+ MIDI.TransmitBuffer = 0x00;
+
+ //SCIPD &= ~0x200;
+ //MCIPD &= ~0x200;
+ //RecalcSoundInt();
+ //RecalcMainInt();
+}
+//
+//
+//
 
 static INLINE void SDL_PAN_ToVolume(int16* outvol, const unsigned level, const unsigned pan)
 {
@@ -209,13 +351,8 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  {
   if(MDFN_UNLIKELY(A >= 0x80000))
   {
-   if(IsWrite)
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] %zu-byte write of value 0x%08x to unmapped SCSP RAM address 0x%06x\n", sizeof(T), DBV, A);
-   else
-   {
-    SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] %zu-byte read from unmapped SCSP RAM address 0x%06x\n", sizeof(T), A);
+   if(!IsWrite)
     DBV = 0;
-   }
   }
   else
   {
@@ -224,10 +361,10 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(A < 0x100400)
+ A &= 0xFFF;
+
+ if(A < 0x400)
  {
-  //if(IsWrite)
-  // SS_DBG(SS_DBG_SCSP_REGW, "[SCSP] %zu-byte write to slot 0x%02x register offset 0x%02x: 0x%0*x\n", sizeof(T), (A >> 5) & 0x1F, A & 0x1F, (int)(2 * sizeof(T)), DBV);
   //
   // Slot regs
   //
@@ -247,7 +384,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	SRV &= 0x0FFF;
 
 	s->KeyBit = (SRV >> 11) & 0x1;
-	s->SBControl = (SRV >> 9) & 0x3;
+	s->SBXOR = SB_XOR_Table[(SRV >> 9) & 0x3];
 	s->SourceControl = (SRV >> 7) & 0x3;
 	s->LoopMode = (SRV >> 5) & 0x3;
 	s->WF8Bit = (SRV >> 4) & 0x1;
@@ -264,6 +401,8 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 
     case 0x03:
 	s->LoopEnd = SRV;
+	//
+	RecalcShortWaveMask(s);
 	break;
 
     case 0x04:
@@ -274,23 +413,15 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	break;
 
     case 0x05:
-	if(SRV & 0x8000)
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
-
 	s->EnvRates[ENV_PHASE_RELEASE] = SRV & 0x1F;
 	s->DecayLevel = (SRV >> 5) & 0x1F;
 	s->KRS = (SRV >> 10) & 0xF;
 	s->AttackLoopLink = (SRV >> 14) & 0x1;
+	s->EGBypass = (SRV >> 15) & 0x1;
 	break;
 
     case 0x06:
 	SRV &= 0x0FFF;
-	if(SRV & 0x0C00)
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
 
 	s->TotalLevel = SRV & 0xFF;
 	s->SoundDirect = (SRV >> 8) & 0x1;
@@ -304,13 +435,11 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	break;
 
     case 0x08:
-	if(SRV & 0x8400)
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
-
 	s->FreqNum = SRV & 0x7FF;
 	s->Octave = (SRV >> 11) & 0xF;
+	s->ShortWave = (SRV >> 15) & 0x1;
+	//
+	RecalcShortWaveMask(s);
 	break;
 
     case 0x09:
@@ -324,10 +453,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 
     case 0x0A:
 	SRV &= 0x00FF;
-	if(SRV & 0x0080)
-	{
-	 //SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown bits non-zero in slot %u, register %u\n", slotnum, (A >> 1) & 0xF);
-	}
 	s->ToDSPLevel = SRV & 0x7;
 	s->ToDSPSelect = (SRV >> 3) & 0xF;
 	break;
@@ -346,7 +471,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(A < 0x100430)
+ if(A < 0x430)
  {
   // OldReg = (OldReg &~ mask) | ((DBV << shift) & mask & whatever);
   unsigned mask = 0xFFFF;
@@ -412,7 +537,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	  // TODO: Test correct order of flags latching returning versus input fetching/latching(also maybe take into consideration
 	  // 16-bit access from SCU being split into 2x 8-bit accesses on the real thing...).
 	  unsigned tmp = MIDI.Flags << 8;
-	  tmp |= MIDI.ReadInput();
+	  tmp |= MIDI_ReadInput();
 	  DBV = tmp & mask;
 	 }
 	 else
@@ -423,7 +548,10 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
    case 0x03:	// MOBUF (W)
 	if(IsWrite)
 	{
-
+	 if(!shift)
+	 {
+	  MIDI_WriteOutput(DBV);
+	 }
 	}
 	else
 	 DBV = 0;
@@ -445,8 +573,27 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
    case 0x05:
    case 0x06:
    case 0x07:
-   case 0x08:
 	if(!IsWrite)
+	 DBV = 0;
+	break;
+
+   case 0x08:	// TEST
+	if(IsWrite)
+	{
+	 //
+	 // 0x80: Mute? messes up sound cpu too?
+	 //
+	 // 0x20: forces LFO frequency to max? and blocks memory access to waveform playback? messes up sound cpu too?
+	 // 0x40: blocks memory access to waveform playback? messes up sound cpu too?
+	 // 0x60: force wfallowaccess = 0 ? messes up sound cpu too?
+	 //
+	 // 0x08: appears to block SCU access to SCSP RAM(causes hang)
+	 // 0x04: kills sound cpu(blocks memory access?)
+	 // 0x02: blocks slot waveform playback from reading memory?
+	 // 0x01: messes up dsp or blocks dsp memory access? the ears are not happy!
+	 //
+	}
+	else
 	 DBV = 0;
 	break;
 
@@ -486,13 +633,6 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	 DMA_Direction = (tmp >> 13) & 0x1;
 	 DMA_Gate = (tmp >> 14) & 0x1;
 
-#if 0
-	 if(!prev_execute && DMA_Execute)
-	 {
-	  printf("[SCSP] DMA Started; Memory Address: 0x%06x, Register Address: 0x%03x, Length: 0x%03x Direction: %u, Gate: %u\n",
-		DMEA << 1, DRGA << 1, DTLG << 1, DMA_Direction, DMA_Gate);
-	 }
-#endif
 	 RunDMA();
 	}
 	else
@@ -516,7 +656,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
 	 if(!shift)
 	  t->Reload = DBV & 0xFF;
 
-	 //printf("Timer(%zu-byte) %u: %04x\n", sizeof(T), ((A >> 1) & 0x1F) - 0x0C, DBV);
+	 //printf("Timer(%zu-byte) %u: %04x --- %02x\n", sizeof(T), ((A >> 1) & 0x1F) - 0x0C, DBV, t->Counter);
 	}
 	else
 	 DBV = 0;
@@ -615,20 +755,17 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(A >= 0x100600 && A <= 0x10067F)
+ if(A >= 0x600 && A <= 0x67F)
  {
   //
   // Sound stack data
   //
-  if(IsWrite)
-   *(T*)((uint8*)SoundStack + ((A & 0x7F &~(sizeof(T) - 1)) ^ (2 - sizeof(T)))) = DBV;
-  else
-   DBV = *(T*)((uint8*)SoundStack + ((A & 0x7F & ~(sizeof(T) - 1)) ^ (2 - sizeof(T))));
+  ne16_rwbo_be<T, IsWrite>(SoundStack, A & 0x7F, &DBV);
 
   return;
  }
 
- if(A >= 0x100700 && A <= 0x10077F)
+ if(A >= 0x700 && A <= 0x77F)
  {
   //
   // DSP coefficients
@@ -651,7 +788,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(A >= 0x100780 && A <= 0x1007BF)
+ if(A >= 0x780 && A <= 0x7BF)
  {
   //
   // DSP memory addresses
@@ -661,7 +798,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(A >= 0x100800 && A <= 0x100BFF)
+ if(A >= 0x800 && A <= 0xBFF)
  {
   //
   // DSP microprogram
@@ -677,7 +814,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  //
  // DSP work buffer
  //
- if(A >= 0x100C00 && A <= 0x100DFF)
+ if(A >= 0xC00 && A <= 0xDFF)
  {
   const unsigned index = (A & 0x1FF) >> 2;
   unsigned mask;
@@ -705,7 +842,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  //
  // DSP memory read stack
  //
- if(A >= 0x100E00 && A <= 0x100E7F)
+ if(A >= 0xE00 && A <= 0xE7F)
  {
   const unsigned index = (A & 0x7F) >> 2;
   unsigned mask;
@@ -733,7 +870,7 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  //
  // DSP mix stack
  //
- if(A >= 0x100E80 && A <= 0x100EBF)
+ if(A >= 0xE80 && A <= 0xEBF)
  {
   const unsigned index = (A & 0x3F) >> 2;
   unsigned mask;
@@ -761,14 +898,14 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
  //
  //
  //
- if(A >= 0x100EC0 && A <= 0x100EDF)
+ if(A >= 0xEC0 && A <= 0xEDF)
  {
   ne16_rwbo_be<T, IsWrite>(DSP.EFREG, A & 0x1F, &DBV);
 
   return;
  }
 
- if(A >= 0x100EE0 && A <= 0x100EE3)
+ if(A >= 0xEE0 && A <= 0xEE3)
  {
   if(!IsWrite)
    DBV = ne16_rbo_be<T>(EXTS, A & 0x3);
@@ -776,13 +913,8 @@ INLINE void SS_SCSP::RW(uint32 A, T& DBV)
   return;
  }
 
- if(IsWrite)
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown %zu-byte write of value 0x%08x to address 0x%08x\n", sizeof(T), DBV, A);
- else
- {
-  SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Unknown %zu-byte read from address 0x%08x\n", sizeof(T), A);
+ if(!IsWrite)
   DBV = 0;
- }
 }
 
 
@@ -837,56 +969,57 @@ void NO_INLINE SS_SCSP::RunDMA(void)
 }
 
 
-INLINE void SS_SCSP::RunEG(Slot* s, const unsigned key_eg_scale)
+INLINE void SS_SCSP::RunEG(Slot* s, const unsigned key_eg_scale, const uint32 sc, const uint32 scxc)
 {
- if(s->EnvPhase == ENV_PHASE_DECAY1 && (s->EnvLevel >> 5) == s->DecayLevel)
-  s->EnvPhase = ENV_PHASE_DECAY2;
-
- //
- //
- //
- bool ClockEG;
+ const uint32 EnvLevelCache = s->EnvLevel;
  const unsigned ERateNoScale = s->EnvRates[s->EnvPhase];
  const unsigned ERate = std::min<unsigned>(0x1F, key_eg_scale + ERateNoScale);
- const unsigned ERateWBT = (0x22 - std::min<unsigned>(0x18, ERate)) >> 1;
- const bool EGCBT = (GlobalCounter >> ERateWBT) & 1;
+ const unsigned ERateWBT = (0x18 - std::min<unsigned>(0x18, ERate)) >> 1;
+ const bool ShiftAdj = (ERate < 0x18) & ERate;
+ bool ClockEG;
 
- ClockEG = !s->EnvGCBTPrev && EGCBT;
+ //
+ // The equivalent using SampleCounter instead of SampleCounterXC would be like:
+ //
+ //	When ShiftAdj is 0, look for a 1 at bit position ERateWBT, and lower bits must be 0, unless ERateWBT is 0, in which case
+ //	bit0 must be 0 instead of 1.
+ //
+ //	When ShiftAdj is 1, look for a 1 at bit position ERateWBT + 1 or(inclusive) bit position ERateWBT + 2, and lower bits
+ //	must be 0.
+ //
+ ClockEG = ((scxc | (scxc >> ShiftAdj)) >> (ERateWBT + ShiftAdj)) & (bool)ERateNoScale;
 
- if((ERate < 0x18) && (ERate & 1))
-  ClockEG &= (bool)((GlobalCounter >> (ERateWBT + 1)) & 0x3);
-
- ClockEG &= (bool)ERateNoScale;
-
- s->EnvGCBTPrev = EGCBT;
+ if(s->EnvPhase == ENV_PHASE_ATTACK && (ERateNoScale + key_eg_scale) >= 0x20)
+  ClockEG = false;
 
  if(ClockEG)
  {
-  const int32 inc_base = (s->EnvPhase == ENV_PHASE_ATTACK) ? ~s->EnvLevel : 16;
+  const int32 inc_base = (s->EnvPhase == ENV_PHASE_ATTACK) ? ~EnvLevelCache : 16;
   const unsigned ermaxo = std::max<unsigned>(0x18, std::min<unsigned>(0x1E, ERate));
-  const uint32 srac = ((0x20 - ermaxo) >> 1) + (ermaxo & 1 & (GlobalCounter >> (ERateWBT + 1)));
+  const uint32 srac = ((0x20 - ermaxo) >> 1) + (ermaxo & 1 & (sc >> (ERateWBT + 1)));
+  int32 NewEnvLevel;
 
-  //if(s == &Slots[0] && s->EnvLevel)
-  // printf("EP: %u, EL: 0x%04x, AR: 0x%02x, %d, %u --- %02x\n", s->EnvPhase, s->EnvLevel, s->EnvRates[ENV_PHASE_ATTACK], inc_base, srac, ERate);
+  NewEnvLevel = EnvLevelCache + (inc_base >> srac);
 
-  s->EnvLevel += inc_base >> srac;
+  if(NewEnvLevel > 0x3FF)
+   NewEnvLevel = 0x3FF;
 
-  if((int32)s->EnvLevel >= 0x3FF)
-  {
-   s->WFAllowAccess = false;
-   s->EnvLevel = 0x3FF;
-  }
+  if(NewEnvLevel < 0)
+   NewEnvLevel = 0;
 
-  if((int32)s->EnvLevel < 0)
-   s->EnvLevel = 0;
+  s->EnvLevel = NewEnvLevel;
  }
  //
+ // Using EnvLevelCache instead of s->EnvLevel here is intentional:
  //
- //
-
- if(s->EnvPhase == ENV_PHASE_ATTACK)
+ if(s->EnvPhase == ENV_PHASE_DECAY1)
  {
-  if((s->AttackLoopLink && s->InLoop) || (!s->AttackLoopLink && s->EnvLevel == 0))
+  if((EnvLevelCache >> 5) == s->DecayLevel)
+   s->EnvPhase = ENV_PHASE_DECAY2;
+ }
+ else if(s->EnvPhase == ENV_PHASE_ATTACK)
+ {
+  if((s->AttackLoopLink && s->InLoop) || (!s->AttackLoopLink && EnvLevelCache == 0))
    s->EnvPhase = ENV_PHASE_DECAY1;
  }
 }
@@ -1000,7 +1133,7 @@ static INLINE uint32 dspfloat_to_int(const uint16 inv)
 static INLINE uint32 int_to_dspfloat(const uint32 inv)
 {
  const uint32 invsl8 = inv << 8;
- const uint32 sign_xor = (int)invsl8 >> 31;
+ const uint32 sign_xor = (int32)invsl8 >> 31;
  uint32 exp, shift;
  uint32 ret;
 
@@ -1084,13 +1217,6 @@ INLINE void SS_SCSP::RunDSP(void)
   const bool TWT = (instr >> 55) & 1;
   const unsigned TEMPReadAddr = ((instr >> 56) + DSP.MDEC_CT) & 0x7F;
 
-#if 0
-  if(!(step & 1) && (MWT || MRT))
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] Memory access requested at even DSP step %u; 0x%016llx\n", step, instr);
-
-  if(MWT & MRT)
-   SS_DBG(SS_DBG_WARNING | SS_DBG_SCSP, "[SCSP] MWT and MRT both 1 at DSP step %u; 0x%016llx\n", step, instr);
-#endif
   //
   //
   if(IRA & 0x20)
@@ -1235,17 +1361,19 @@ INLINE void SS_SCSP::RunDSP(void)
 //
 //
 //
-INLINE void SS_SCSP::RunSample(int16* outlr)
+template<typename T_out>
+INLINE void SS_SCSP::RunSample(T_out* outlr)
 {
+ const uint32 SampleCounter = GlobalCounter >> 5;
+ const uint32 SampleCounterXC = (SampleCounter ^ (SampleCounter - 1)) & (SampleCounter ^ 1);
  int32 out_accum[2] = { 0, 0 };
+
+ MIDI_Run();
 
  for(unsigned i = 0; i < 3; i++)
  {
   auto* t = &Timers[i];
-  bool CCB = (GlobalCounter >> (4 + t->Control)) & 1;
-  bool DoClock = (t->Control == 0) || (!t->PrevClockIn && CCB);
-  t->PrevClockIn = CCB;
-
+  const bool DoClock = !(SampleCounter & ((1U << t->Control) - 1));
 
   if(DoClock)
   {
@@ -1282,16 +1410,18 @@ INLINE void SS_SCSP::RunSample(int16* outlr)
  //
  for(unsigned slot = 0; slot < 32; slot++)
  {
-  uint32 mdata = 0;
   auto* s = &Slots[slot];
   unsigned key_eg_scale;
 
+  s->WFAllowAccess &= (s->EnvLevel < 0x3C0 || s->EGBypass);
+  //
+  //
   if(s->KRS == 0xF)
    key_eg_scale = 0x00;
   else
    key_eg_scale = std::max<int>(0x00, std::min<int>(0x0F, s->KRS + (s->Octave ^ 0x8) - 0x8));
 
-  RunEG(s, key_eg_scale);
+  RunEG(s, key_eg_scale, SampleCounter, SampleCounterXC);
 
   if(KeyExecute && (s->EnvPhase == ENV_PHASE_RELEASE) == s->KeyBit)
   {
@@ -1312,93 +1442,125 @@ INLINE void SS_SCSP::RunSample(int16* outlr)
    else
     s->EnvPhase = ENV_PHASE_RELEASE;
   }
+  //
+  //
+  if(!s->InLoop)
+  {
+   if((uint16)(s->CurrentAddr + 1) > s->LoopStart)
+   {
+    if(s->LoopMode == 2)
+    {
+     s->CurrentAddr += -(s->LoopStart + s->LoopEnd);
+     s->LoopSub = true;
+    }
 
-  //
-  //
+    s->InLoop = true;
+   }
+  }
+  else
+  {
+   const uint16 ca = 1 + (s->LoopSub ? ~s->CurrentAddr : s->CurrentAddr);
+   const uint16 comp = (s->LoopSub && (s->LoopMode & 0x2)) ? s->LoopStart : s->LoopEnd;
+
+   if(s->LoopSub ^ (ca > comp))
+   {
+    if(s->LoopMode == 0)
+     s->WFAllowAccess = false;
+    
+    if(s->LoopMode == 3)
+    {
+     s->LoopSub = !s->LoopSub;
+     if(s->LoopSub)
+      s->CurrentAddr -= s->LoopEnd << 1;
+     else
+      s->CurrentAddr += s->LoopStart << 1;
+    }
+    else
+    {
+     if(s->LoopSub && !(s->LoopMode & 0x2))
+      s->CurrentAddr += s->LoopEnd - s->LoopStart;
+     else
+      s->CurrentAddr += s->LoopStart - s->LoopEnd;
+    }
+   }
+  }
+ }
+
+ for(unsigned slot = 0; slot < 32; slot++)
+ {
+  auto* s = &Slots[slot];
+  uint32 mdata = 0;
   uint16 sample = 0;
 
   if(s->SourceControl == 1)
    sample = LFSR << 8;
 
-  sample ^= SB_XOR_Table[s->SBControl];	// For zero and noise case only; waveform playback needs it to occur before linear interpolation.
-
-  if(1) //s->WFAllowAccess)
-  {
-   if(!s->InLoop)
-   {
-    if((uint16)(s->CurrentAddr + 1) > s->LoopStart)
-    {
-     if(s->LoopMode == 2)
-      s->LoopSub = true;
-
-     s->InLoop = true;
-    }
-   }
-   else
-   {
-    const bool cres = s->LoopSub ? ((uint16)(s->LoopEnd - s->CurrentAddr + s->LoopStart) <= s->LoopStart) : ((uint16)(s->CurrentAddr + 1) > s->LoopEnd);
-
-    if(cres)
-    {
-     if(s->LoopMode == 0)
-      s->WFAllowAccess = false;
-    
-     if(s->LoopMode == 3)
-      s->LoopSub = !s->LoopSub;
- 
-     s->CurrentAddr += s->LoopStart - s->LoopEnd;
-    }
-   }
-  }
-
+  sample ^= s->SBXOR;	// For zero and noise case only; waveform playback needs it to occur before linear interpolation.
+  //
+  //
   if(s->WFAllowAccess)
   {
-   uint32 modalizer;
+   uint32 modalizer_int[2];
    uint32 tmppw = s->PhaseWhacker;
    uint16 tmpa = s->CurrentAddr;
-   int16 s0, s1;
-
    //
    //
-   modalizer  = (int16)SoundStack[(GlobalCounter + s->ModInputX) & 0x3F];
-   modalizer += (int16)SoundStack[(GlobalCounter + s->ModInputY) & 0x3F];
-   modalizer >>= 0x10 - s->ModLevel;
-
-   if(s->ModLevel <= 0x04)
-    modalizer = 0;
-
-   modalizer = sign_x_to_s32(11, modalizer);
-   //
-   //
-
    if(s->LoopSub)
    {
     tmppw = ~tmppw;
-    tmpa = s->LoopStart + s->LoopEnd + ~tmpa;
+    tmpa = ~tmpa;
    }
 
    mdata |= ((tmpa >> 12) << 7);
+   //
+   //
+   uint32 sia;
+   int16 s0, s1;
+
+   {
+    //
+    // TODO/FIXME: Proper handling of the slot 31->0 buggy FM interpolation case with respect to reverse looping(ns->LoopSub)
+    // requires sub-sample timing emulation.
+    //
+    auto* ns = &Slots[(slot + 1) & 0x1F];
+    uint32 modalizer;
+    uint32 ns_sia;
+
+    modalizer  = (int16)SoundStack[(GlobalCounter + s->ModInputX) & 0x3F];
+    modalizer += (int16)SoundStack[(GlobalCounter + s->ModInputY) & 0x3F];
+    modalizer = ((modalizer << 6) >> (0x10 - s->ModLevel)) & ~1;
+
+    if(s->ModLevel <= 0x04)
+     modalizer = 0;
+
+    sia = modalizer + ((tmppw >> (14 - 6)) & 0x3F);
+    ns_sia = modalizer + (((ns->PhaseWhacker >> (14 - 6)) ^ (ns->LoopSub ? 0x3F : 0x00)) & 0x3F);
+
+    modalizer_int[0] = sign_x_to_s32(11,    sia >> 6);
+    modalizer_int[1] = sign_x_to_s32(11, ns_sia >> 6);
+    //
+    sia &= 0x3F;
+   }
 
    if(s->WF8Bit)
    {
-    const uint32 addr0 = (s->StartAddr + modalizer + (uint16)(tmpa + 0)) & 0xFFFFF;
-    const uint32 addr1 = (s->StartAddr + modalizer + (uint16)(tmpa + 1)) & 0xFFFFF;
+    const uint32 addr0 = (s->StartAddr + ((modalizer_int[0] + (uint16)(tmpa + 0)) & s->ShortWaveMask)) & 0xFFFFF;
+    const uint32 addr1 = (s->StartAddr + ((modalizer_int[1] + (uint16)(tmpa + 1)) & s->ShortWaveMask)) & 0xFFFFF;
 
     s0 = ne16_rbo_be<uint8>(RAM, addr0) << 8;
     s1 = ne16_rbo_be<uint8>(RAM, addr1) << 8;
    }
    else
    {
-    s0 = RAM[((s->StartAddr >> 1) + modalizer + (uint16)(tmpa + 0)) & 0x7FFFF];
-    s1 = RAM[((s->StartAddr >> 1) + modalizer + (uint16)(tmpa + 1)) & 0x7FFFF];
+    s0 = RAM[((s->StartAddr >> 1) + ((modalizer_int[0] + (uint16)(tmpa + 0)) & s->ShortWaveMask)) & 0x7FFFF];
+    s1 = RAM[((s->StartAddr >> 1) + ((modalizer_int[1] + (uint16)(tmpa + 1)) & s->ShortWaveMask)) & 0x7FFFF];
    }
 
-   s0 ^= SB_XOR_Table[s->SBControl];
-   s1 ^= SB_XOR_Table[s->SBControl];
+   s0 ^= s->SBXOR;
+   s1 ^= s->SBXOR;
 
    if(s->SourceControl == 0)
    {
-    const unsigned sia = (tmppw >> (14 - 6)) & 0x3F;
     sample = ((s0 * (0x40 - sia)) + (s1 * sia)) >> 6;
    }
 
@@ -1418,7 +1580,7 @@ INLINE void SS_SCSP::RunSample(int16* outlr)
   {
    int32 vlevel;
 
-   vlevel = (s->EnvPhase == ENV_PHASE_ATTACK && s->AttackHold) ? 0 : s->EnvLevel;
+   vlevel = ((s->EnvPhase == ENV_PHASE_ATTACK && s->AttackHold) || s->EGBypass) ? 0 : s->EnvLevel;
    //
    mdata |= (s->EnvPhase << 5) | (vlevel >> 5);
    //
@@ -1480,9 +1642,7 @@ INLINE void SS_SCSP::RunSample(int16* outlr)
 
  if(DAC18bit)
  {
-  // Doesn't seem to improve precision.  Remember
-  // to extend the outlr[] types if this SCSP emulator is used
-  // in a system that actually has an 18-bit DAC.
+  // Doesn't seem to improve precision.
   out_accum[0] = (uint32)out_accum[0] << 2;
   out_accum[1] = (uint32)out_accum[1] << 2;
  }
@@ -1507,7 +1667,6 @@ void SS_SCSP::StateAction(StateMem* sm, const unsigned load, const bool data_onl
   SFVAR(Slots->WFAllowAccess, 32, sizeof(*Slots), Slots),
   SFVAR(Slots->EnvLevel, 32, sizeof(*Slots), Slots),
   SFVAR(Slots->EnvPhase, 32, sizeof(*Slots), Slots),
-  SFVAR(Slots->EnvGCBTPrev, 32, sizeof(*Slots), Slots),
   SFVAR(Slots->LFOCounter, 32, sizeof(*Slots), Slots),
   SFVAR(Slots->LFOTimeCounter, 32, sizeof(*Slots), Slots),
 
@@ -1537,7 +1696,10 @@ void SS_SCSP::StateAction(StateMem* sm, const unsigned load, const bool data_onl
   SFVAR(MIDI.OutputWP),
   SFVAR(MIDI.OutputCount),
   SFVAR(MIDI.Flags),
- 
+  SFVAR(MIDI.SimuClockDivider),
+  SFVAR(MIDI.TransmitBitCounter),
+  SFVAR(MIDI.TransmitBuffer),
+
   SFVAR(SCIEB),
   SFVAR(SCIPD),
 
@@ -1548,7 +1710,6 @@ void SS_SCSP::StateAction(StateMem* sm, const unsigned load, const bool data_onl
 
   SFVAR(Timers->Control, 3, sizeof(*Timers), Timers),
   SFVAR(Timers->Counter, 3, sizeof(*Timers), Timers),
-  SFVAR(Timers->PrevClockIn, 3, sizeof(*Timers), Timers),
   SFVAR(Timers->Reload, 3, sizeof(*Timers), Timers),
 
   SFVAR(DMEA),
@@ -1592,7 +1753,7 @@ void SS_SCSP::StateAction(StateMem* sm, const unsigned load, const bool data_onl
   SFEND
  };
 
- MDFNSS_StateAction(sm, load, data_only, StateRegs, "SCSP", false);
+ MDFNSS_StateAction(sm, load, data_only, StateRegs, sname, false);
 
  if(load)
  {
@@ -1652,16 +1813,32 @@ uint32 SS_SCSP::GetRegister(const unsigned id, char* const special, const uint32
 	ret = Mem4Mb;
 	break;
 
-  case GSREG_RBP:
-	ret = RBP;
-	break;
-
-  case GSREG_RBL:
-	ret = RBL;
+  case GSREG_RBC:
+	ret = RBP | (RBL << 7);
 	break;
 
   case GSREG_MSLC:
 	ret = SlotMonitorWhich;
+	break;
+
+  case GSREG_SCIEB:
+	ret = SCIEB;
+	break;
+
+  case GSREG_SCIPD:
+	ret = SCIPD;
+	break;
+
+  case GSREG_MCIEB:
+	ret = MCIEB;
+	break;
+
+  case GSREG_MCIPD:
+	ret = MCIPD;
+	break;
+
+  case GSREG_EFREG0 ... GSREG_EFREGF:
+	ret = DSP.EFREG[id - GSREG_EFREG0];
 	break;
  }
 
@@ -1682,16 +1859,17 @@ void SS_SCSP::SetRegister(const unsigned id, const uint32 value)
 	Mem4Mb = value & 1;
 	break;
 
-  case GSREG_RBP:
+  case GSREG_RBC:
 	RBP = value & 0x7F;
-	break;
-
-  case GSREG_RBL:
-	RBL = value & 0x3;
+	RBL = (value >> 7) & 0x3;
 	break;
 
   case GSREG_MSLC:
 	SlotMonitorWhich = value & 0x1F;
+	break;
+
+  case GSREG_EFREG0 ... GSREG_EFREGF:
+	DSP.EFREG[id - GSREG_EFREG0] = (uint16)value;
 	break;
  }
 }

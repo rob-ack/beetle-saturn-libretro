@@ -6,7 +6,6 @@ DEBUG                    := 0
 FRONTEND_SUPPORTS_RGB565 := 1
 NEED_CD                  := 1
 NEED_BPP                 := 32
-WANT_NEW_API             := 1
 NEED_DEINTERLACER        := 1
 NEED_THREADING           := 1
 NEED_TREMOR              := 1
@@ -19,7 +18,7 @@ endif
 
 include $(CORE_DIR)/Makefile.common
 
-COREFLAGS := -funroll-loops $(INCFLAGS) -DPSS_STYLE=1 -D__LIBRETRO__ -D_LOW_ACCURACY_ -DINLINE="inline" $(FLAGS)
+COREFLAGS := -funroll-loops $(INCFLAGS) -D__LIBRETRO__ -D_LOW_ACCURACY_ -DINLINE="inline" $(FLAGS)
 COREFLAGS += -DWANT_SATURN_EMU -DSIZEOF_DOUBLE=8
 
 GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"

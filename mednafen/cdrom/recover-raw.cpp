@@ -50,10 +50,9 @@ void Kill_LEC_Correct(void)
 
 int CheckEDC(const unsigned char *cd_frame, bool xa_mode)
 { 
- unsigned int expected_crc, real_crc;
+ unsigned int real_crc;
  unsigned int crc_base = xa_mode ? 2072 : 2064;
-
- expected_crc = cd_frame[crc_base + 0] << 0;
+ unsigned expected_crc = cd_frame[crc_base + 0] << 0;
  expected_crc |= cd_frame[crc_base + 1] << 8;
  expected_crc |= cd_frame[crc_base + 2] << 16;
  expected_crc |= cd_frame[crc_base + 3] << 24;
@@ -65,11 +64,7 @@ int CheckEDC(const unsigned char *cd_frame, bool xa_mode)
 
  if(expected_crc == real_crc)
   return(1);
- else
- {
-  //printf("Bad EDC CRC:  Calculated:  %08x,  Recorded:  %08x\n", real_crc, expected_crc);
-  return(0);
- }
+ return(0);
 }
 
 /***
@@ -166,10 +161,7 @@ static int simple_lec(unsigned char *frame)
    /* Sum up */
 
    if(q_failures || p_failures || q_corrected || p_corrected)
-   {
      return 1;
-   }
-
    return 0;
 }
 
@@ -207,7 +199,6 @@ int ValidateRawSector(unsigned char *frame, bool xaMode)
   if(!CheckEDC(frame, xaMode))
    /* EDC failure in RAW sector */
    return false;
-
   return true;
 }
 

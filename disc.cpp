@@ -20,7 +20,13 @@ static bool g_eject_state;
 
 static int g_current_disc;
 
+static unsigned g_initial_disc;
+static std::string g_initial_disc_path;
+
 static std::vector<CDIF *> CDInterfaces;
+
+static std::vector<std::string> disk_image_paths;
+static std::vector<std::string> disk_image_labels;
 
 //
 // Remember to rebuild region database in db.cpp if changing the order of
@@ -152,11 +158,6 @@ static bool disk_get_eject_state(void)
 	return g_eject_state;
 }
 
-static unsigned disk_get_image_index(void)
-{
-	return g_current_disc;
-}
-
 static bool disk_set_image_index(unsigned index)
 {
 	// only listen if the tray is open
@@ -229,6 +230,9 @@ static bool disk_replace_image_index(unsigned index, const struct retro_game_inf
       if (index < CD_SelectedDisc)
          CD_SelectedDisc--;
 
+      disk_image_paths.erase(disk_image_paths.begin() + index);
+      disk_image_labels.erase(disk_image_labels.begin() + index);
+
       // Poke into psx.cpp
       CalcDiscSCEx();
       return true;
@@ -248,6 +252,11 @@ static bool disk_replace_image_index(unsigned index, const struct retro_game_inf
    extract_basename(retro_cd_base_name, info->path, sizeof(retro_cd_base_name));
    /* Ugly, but needed to get proper disk swapping effect. */
    update_md5_checksum(iface);
+
+   /* Update disk path/label vectors */
+   disk_image_paths[index]  = info->path;
+   disk_image_labels[index] = retro_cd_base_name;
+
    return true;
 #endif
 }
@@ -257,13 +266,69 @@ static bool disk_add_image_index(void)
 	log_cb(RETRO_LOG_INFO, "disk_add_image_index called.\n");
 
 	CDInterfaces.push_back(NULL);
+	disk_image_paths.push_back("");
+	disk_image_labels.push_back("");
 	return true;
 }
 
+static bool disk_set_initial_image(unsigned index, const char *path)
+{
+	if (string_is_empty(path))
+		return false;
+
+	g_initial_disc      = index;
+	g_initial_disc_path = path;
+
+	return true;
+}
+
+static bool disk_get_image_path(unsigned index, char *path, size_t len)
+{
+	if (len < 1)
+		return false;
+
+	if ((index < CDInterfaces.size()) &&
+		 (index < disk_image_paths.size()))
+	{
+		if (!string_is_empty(disk_image_paths[index].c_str()))
+		{
+			strlcpy(path, disk_image_paths[index].c_str(), len);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool disk_get_image_label(unsigned index, char *label, size_t len)
+{
+	if (len < 1)
+		return false;
+
+	if ((index < CDInterfaces.size()) &&
+		 (index < disk_image_labels.size()))
+	{
+		if (!string_is_empty(disk_image_labels[index].c_str()))
+		{
+			strlcpy(label, disk_image_labels[index].c_str(), len);
+			return true;
+		}
+	}
+
+	return false;
+}
 
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
+
+/* This has to be 'global', since we need to
+ * access the current disk index inside
+ * libretro.cpp */
+unsigned disk_get_image_index(void)
+{
+	return g_current_disc;
+}
 
 static struct retro_disk_control_callback disk_interface =
 {
@@ -276,16 +341,136 @@ static struct retro_disk_control_callback disk_interface =
 	disk_add_image_index,
 };
 
+static struct retro_disk_control_ext_callback disk_interface_ext =
+{
+	disk_set_eject_state,
+	disk_get_eject_state,
+	disk_get_image_index,
+	disk_set_image_index,
+	disk_get_num_images,
+	disk_replace_image_index,
+	disk_add_image_index,
+	disk_set_initial_image,
+	disk_get_image_path,
+	disk_get_image_label,
+};
+
+void extract_basename(char *buf, const char *path, size_t size)
+{
+   const char *base = strrchr(path, '/');
+   if (!base)
+      base = strrchr(path, '\\');
+   if (!base)
+      base = path;
+
+   if (*base == '\\' || *base == '/')
+      base++;
+
+   strncpy(buf, base, size - 1);
+   buf[size - 1] = '\0';
+
+   char *ext = strrchr(buf, '.');
+   if (ext)
+      *ext = '\0';
+}
+
+void extract_directory(char *buf, const char *path, size_t size)
+{
+   strncpy(buf, path, size - 1);
+   buf[size - 1] = '\0';
+
+   char *base = strrchr(buf, '/');
+   if (!base)
+      base = strrchr(buf, '\\');
+
+   if (base)
+      *base = '\0';
+   else
+      buf[0] = '\0';
+}
+
 void disc_init( retro_environment_t environ_cb )
 {
+	unsigned dci_version = 0;
+
 	// start closed
 	g_eject_state = false;
 
+	g_initial_disc = 0;
+	g_initial_disc_path.clear();
+
 	// register vtable with environment
-	environ_cb( RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_interface );
+	if (environ_cb(RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION, &dci_version) && (dci_version >= 1))
+		environ_cb(RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE, &disk_interface_ext);
+	else
+		environ_cb(RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_interface);
 }
 
-void disc_calcgameid( uint8* id_out16, uint8* fd_id_out16, char* sgid )
+static INLINE bool MDFN_isspace(const char c) { return c == ' ' || c == '\f' || c == '\r' || c == '\n' || c == '\t' || c == '\v'; }
+
+// Remove whitespace from beginning of s
+static void MDFN_ltrim(char* s)
+{
+ const char* si = s;
+ char* di = s;
+ bool InWhitespace = true;
+
+ while(*si)
+ {
+  if(!InWhitespace || !MDFN_isspace(*si))
+  {
+   InWhitespace = false;
+   *di = *si;
+   di++;
+  }
+  si++;
+ }
+
+ *di = 0;
+}
+
+// Remove whitespace from end of s
+static void MDFN_rtrim(char* s)
+{
+ const size_t len = strlen(s);
+
+ if(!len)
+  return;
+ //
+ size_t x = len;
+
+ do
+ {
+  x--;
+
+  if(!MDFN_isspace(s[x]))
+   break;
+ 
+  s[x] = 0;
+ } while(x);
+}
+
+static void MDFN_trim(char* s)
+{
+ MDFN_rtrim(s);
+ MDFN_ltrim(s);
+}
+
+static void MDFN_zapctrlchars(char* s)
+{
+ if(!s)
+  return;
+
+ while(*s)
+ {
+  if((unsigned char)*s < 0x20)
+   *s = ' ';
+
+  s++;
+ }
+}
+
+static void CalcGameID( uint8* id_out16, uint8* fd_id_out16, char* sgid, char* sgname, char* sgarea )
 {
 	md5_context mctx;
 	uint8_t buf[2048];
@@ -330,6 +515,15 @@ void disc_calcgameid( uint8* id_out16, uint8* fd_id_out16, char* sgid )
 						{
 						*tmp = 0;
 						} while(tmp-- != sgid && (signed char)*tmp <= 0x20);
+						memcpy(sgname, &buf[0x60], 0x70);
+						sgname[0x70] = 0;
+						MDFN_zapctrlchars(sgname);
+						MDFN_trim(sgname);
+
+						memcpy(sgarea, &buf[0x40], 0x10);
+						sgarea[0x10] = 0;
+						MDFN_zapctrlchars(sgarea);
+						MDFN_trim(sgarea);
 					}
 				}
 
@@ -347,17 +541,20 @@ void disc_calcgameid( uint8* id_out16, uint8* fd_id_out16, char* sgid )
 	mctx.finish(id_out16);
 }
 
-void disc_cleanup()
+void disc_cleanup(void)
 {
 	for(unsigned i = 0; i < CDInterfaces.size(); i++) {
 		delete CDInterfaces[i];
 	}
 	CDInterfaces.clear();
 
+	disk_image_paths.clear();
+	disk_image_labels.clear();
+
 	g_current_disc = 0;
 }
 
-bool disc_detect_region( unsigned* region )
+bool DetectRegion( unsigned* region )
 {
 	uint8_t *buf = new uint8[2048 * 16];
 	uint64 possible_regions = 0;
@@ -400,7 +597,7 @@ bool disc_detect_region( unsigned* region )
 	return false;
 }
 
-bool disc_test()
+bool DiscSanityChecks(void)
 {
 	size_t i;
 
@@ -481,9 +678,9 @@ bool disc_test()
 
 			break;
 
-		}; // for each track
+		} // for each track
 
-	}; // for each disc
+	} // for each disc
 
 	return true;
 }
@@ -496,13 +693,12 @@ void disc_select( unsigned disc_num )
 	}
 }
 
-bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid )
+bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8* fd_id, char* sgid, char* sgname, char* sgarea, bool image_memcache )
 {
 	disc_cleanup();
 
-	if ( !content_name ) {
+	if ( !content_name )
 		return false;
-	}
 
 	uint8 LayoutMD5[ 16 ];
 
@@ -510,31 +706,60 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 
 	try
 	{
-		size_t content_name_len;
-		content_name_len = strlen( content_name );
+		size_t content_name_len = strlen( content_name );
 		if ( content_name_len > 4 )
 		{
 			const char* content_ext = content_name + content_name_len - 4;
 			if ( !strcasecmp( content_ext, ".m3u" ) )
 			{
 				// multiple discs
-				std::vector<std::string> file_list;
-				ReadM3U(file_list, content_name);
-				for(unsigned i = 0; i < file_list.size(); i++)
+				ReadM3U(disk_image_paths, content_name);
+				for(unsigned i = 0; i < disk_image_paths.size(); i++)
 				{
+					char image_label[4096];
 					bool success = true;
-					log_cb(RETRO_LOG_INFO, "Adding CD: \"%s\".\n", file_list[i].c_str());
-					CDIF *image  = CDIF_Open(file_list[i].c_str(), false);
+					image_label[0] = '\0';
+					log_cb(RETRO_LOG_INFO, "Adding CD: \"%s\".\n", disk_image_paths[i].c_str());
+					CDIF *image = CDIF_Open(disk_image_paths[i].c_str(), image_memcache);
 					CDInterfaces.push_back(image);
+					extract_basename(
+					image_label,
+					disk_image_paths[i].c_str(),
+					sizeof(image_label));
+					disk_image_labels.push_back(image_label);
 				}
 			}
 			else
 			{
 				// single disc
+				char image_label[4096];
 				bool success = true;
-				CDIF *image  = CDIF_Open(content_name, false);
+
+				image_label[0] = '\0';
+
+				disk_image_paths.push_back(content_name);
+				CDIF *image  = CDIF_Open(content_name, image_memcache);
 				CDInterfaces.push_back(image);
+
+				extract_basename(
+				image_label,
+				content_name,
+				sizeof(image_label));
+				disk_image_labels.push_back(image_label);
 			}
+
+			/* Attempt to set initial disk index */
+			if ((g_initial_disc > 0) &&
+				(g_initial_disc 
+				 < CDInterfaces.size()))
+				if (g_initial_disc 
+				< disk_image_paths.size())
+					if (string_is_equal(
+					disk_image_paths[
+					g_initial_disc].c_str(),
+					g_initial_disc_path.c_str()))
+						g_current_disc = (int)
+							g_initial_disc;
 		}
 	}
 	catch( std::exception &e )
@@ -586,7 +811,7 @@ bool disc_load_content( MDFNGI* game_interface, const char* content_name, uint8*
 
 	memcpy( game_interface->MD5, LayoutMD5, 16 );
 
-	disc_calcgameid( game_interface->MD5, fd_id, sgid );
+	CalcGameID( game_interface->MD5, fd_id, sgid, sgname, sgarea );
 
 	return true;
 }

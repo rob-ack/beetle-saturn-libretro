@@ -21,6 +21,7 @@
 
 #include "ss.h"
 #include "scu.h"
+#include "debug.inc"
 
 #pragma GCC optimize("Os")
 
@@ -49,7 +50,6 @@ static NO_INLINE NO_CLONE void MVIInstr(void)
   switch(dest)
   {
    default:
-	SS_DBG(SS_DBG_WARNING | SS_DBG_SCU, "[SCU] MVI unknown dest 0x%01x --- Instr=0x%08x, Next_Instr=0x%08x, PC=0x%02x\n", dest, instr, (unsigned)(DSP.NextInstr >> 32), DSP.PC);
 	break;
 
    case 0x0:
@@ -81,7 +81,7 @@ static NO_INLINE NO_CLONE void MVIInstr(void)
 }
 
 
-extern void (*const DSP_MVIFuncTable[2][16][128])(void) =
+MDFN_HIDE extern void (*const DSP_MVIFuncTable[2][16][128])(void) =
 {
  #include "scu_dsp_mvitab.inc"
 };

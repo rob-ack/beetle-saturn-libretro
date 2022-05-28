@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* sound.cpp - Sound Emulation
-**  Copyright (C) 2015-2016 Mednafen Team
+**  Copyright (C) 2015-2021 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -24,21 +24,17 @@
 // registers whose values may change between the individual byte reads.
 // (May not be worth emulating if it could possibly trigger problems in games)
 
-#include <mednafen/mednafen.h>
-#include <mednafen/hw_cpu/m68k/m68k.h>
+#include "../mednafen.h"
+#include "../hw_cpu/m68k/m68k.h"
+#include "../jump.h"
 
-#ifndef MDFN_SSFPLAY_COMPILE
 #include "ss.h"
 #include "sound.h"
 #include "scu.h"
 #include "cdb.h"
 
-#else
-namespace MDFN_IEN_SSFPLAY
-{
-#endif
-
 #include "scsp.h"
+#include "debug.inc"
 
 static SS_SCSP SCSP;
 
@@ -49,19 +45,19 @@ static int32 next_scsp_time;
 static uint32 clock_ratio;
 static sscpu_timestamp_t lastts;
 
-int16_t IBuffer[1024][2];
+static MDFN_jmp_buf jbuf;
+
+int16 IBuffer[1024][2];
 static uint32 IBufferCount;
 
-static INLINE void SCSP_SoundIntChanged(unsigned level)
+static INLINE void SCSP_SoundIntChanged(SS_SCSP* s, unsigned level)
 {
  SoundCPU.SetIPL(level);
 }
 
-static INLINE void SCSP_MainIntChanged(bool state)
+static INLINE void SCSP_MainIntChanged(SS_SCSP* s, bool state)
 {
- #ifndef MDFN_SSFPLAY_COMPILE
  SCU_SetInt(SCU_INT_SCSP, state);
- #endif
 }
 
 #include "scsp.inc"
@@ -104,11 +100,6 @@ void SOUND_Init(void)
  SoundCPU.BusIntAck = SoundCPU_BusIntAck;
  SoundCPU.BusRESET = SoundCPU_BusRESET;
 
- #ifndef MDFN_SSFPLAY_COMPILE
- SoundCPU.DBG_Warning = SS_DBG_Wrap<SS_DBG_WARNING | SS_DBG_M68K>;
- SoundCPU.DBG_Verbose = SS_DBG_Wrap<SS_DBG_M68K>;
- #endif
-
  SS_SetPhysMemMap(0x05A00000, 0x05A7FFFF, SCSP.GetRAMPtr(), 0x80000, true);
  // TODO: MEM4B: SS_SetPhysMemMap(0x05A00000, 0x05AFFFFF, SCSP.GetRAMPtr(), 0x40000, true);
 }
@@ -123,13 +114,19 @@ void SOUND_PokeRAM(uint32 A, uint8 V)
  ne16_wbo_be<uint8>(SCSP.GetRAMPtr(), A & 0x7FFFF, V);
 }
 
-void SOUND_ResetTS(void)
+static INLINE void ResetTS_68K(void)
 {
  next_scsp_time -= SoundCPU.timestamp;
  run_until_time -= (int64)SoundCPU.timestamp << 32;
  SoundCPU.timestamp = 0;
+}
 
- lastts = 0;
+void SOUND_AdjustTS(const int32 delta)
+{
+ ResetTS_68K();
+ //
+ //
+ lastts += delta;
 }
 
 void SOUND_Reset(bool powering_up)
@@ -183,6 +180,17 @@ static NO_INLINE void RunSCSP(void)
  bp[0] = (bp[0] * 27 + 16) >> 5;
  bp[1] = (bp[1] * 27 + 16) >> 5;
 
+/*
+ // TODO?  Need to measure frequency response more reliably first, ideally after capacitor
+ // replacement.  Should probably be controlled by a boolean setting, too.
+ for(unsigned lr = 0; lr < 2; lr++)
+ {
+  static int32 filt[2];
+  filt[lr] += (((int64)(int32)((uint32)bp[lr] << 16) - filt[lr]) * 60500) >> 16;
+  bp[lr] = filt[lr] >> 16;
+ }
+*/
+
  IBufferCount = (IBufferCount + 1) & 1023;
  next_scsp_time += 256;
 }
@@ -199,6 +207,8 @@ sscpu_timestamp_t SOUND_Update(sscpu_timestamp_t timestamp)
  lastts = timestamp;
  //
  //
+ MDFN_setjmp(jbuf);
+
  if(MDFN_LIKELY(SoundCPU.timestamp < (run_until_time >> 32)))
  {
   do
@@ -220,13 +230,17 @@ sscpu_timestamp_t SOUND_Update(sscpu_timestamp_t timestamp)
  return timestamp + 128;	// FIXME
 }
 
+void SOUND_StartFrame(double rate, uint32 quality)
+{
+}
+
 int32 SOUND_FlushOutput(void)
 {
-  int32 ret = IBufferCount;
+ int32 ret = IBufferCount;
 
-  IBufferCount = 0;
+ IBufferCount = 0;
 
-  return(ret);
+ return(ret);
 }
 
 void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
@@ -243,7 +257,7 @@ void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
  next_scsp_time -= SoundCPU.timestamp;
  run_until_time -= (int64)SoundCPU.timestamp << 32;
 
-   MDFNSS_StateAction(sm, load, data_only, StateRegs, "SOUND", false);
+ MDFNSS_StateAction(sm, load, data_only, StateRegs, "SOUND", false);
 
  next_scsp_time += SoundCPU.timestamp;
  run_until_time += (int64)SoundCPU.timestamp << 32;
@@ -255,11 +269,22 @@ void SOUND_StateAction(StateMem* sm, const unsigned load, const bool data_only)
 
 //
 //
-// TODO: test masks.
 //
 template<typename T>
 static MDFN_FASTCALL T SoundCPU_BusRead(uint32 A)
 {
+ if(MDFN_UNLIKELY(A & (0xE00000 | (sizeof(T) - 1))))
+ {
+  SoundCPU.timestamp += 4;
+
+  if(A & (sizeof(T) - 1))
+   SoundCPU.SignalAddressError(A, 0x3);
+  else
+   SoundCPU.SignalDTACKHalted(A);
+
+  MDFN_longjmp(jbuf);
+ }
+ //
  T ret;
 
  SoundCPU.timestamp += 4;
@@ -276,6 +301,18 @@ static MDFN_FASTCALL T SoundCPU_BusRead(uint32 A)
 
 static MDFN_FASTCALL uint16 SoundCPU_BusReadInstr(uint32 A)
 {
+ if(MDFN_UNLIKELY(A & 0xE00001))
+ {
+  SoundCPU.timestamp += 4;
+
+  if(A & 1)
+   SoundCPU.SignalAddressError(A, 0x2);
+  else
+   SoundCPU.SignalDTACKHalted(A);
+
+  MDFN_longjmp(jbuf);
+ }
+ //
  uint16 ret;
 
  SoundCPU.timestamp += 4;
@@ -293,10 +330,25 @@ static MDFN_FASTCALL uint16 SoundCPU_BusReadInstr(uint32 A)
 template<typename T>
 static MDFN_FASTCALL void SoundCPU_BusWrite(uint32 A, T V)
 {
+ if(MDFN_UNLIKELY(A & (0xE00000 | (sizeof(T) - 1))))
+ {
+  SoundCPU.timestamp += 4;
+
+  if(A & (sizeof(T) - 1))
+   SoundCPU.SignalAddressError(A, 0x1);
+  else
+   SoundCPU.SignalDTACKHalted(A);
+
+  MDFN_longjmp(jbuf);
+ }
+ //
+ SoundCPU.timestamp += 2;
+
  if(MDFN_UNLIKELY(SoundCPU.timestamp >= next_scsp_time))
   RunSCSP();
 
  SoundCPU.timestamp += 2;
+
  SCSP.RW<T, true>(A & 0x1FFFFF, V);
  SoundCPU.timestamp += 2;
 }
@@ -304,6 +356,13 @@ static MDFN_FASTCALL void SoundCPU_BusWrite(uint32 A, T V)
 
 static MDFN_FASTCALL void SoundCPU_BusRMW(uint32 A, uint8 (MDFN_FASTCALL *cb)(M68K*, uint8))
 {
+ if(MDFN_UNLIKELY(A & 0xE00000))
+ {
+  SoundCPU.timestamp += 4;
+  SoundCPU.SignalDTACKHalted(A);
+  MDFN_longjmp(jbuf);
+ }
+ //
  uint8 tmp;
 
  SoundCPU.timestamp += 4;
@@ -329,11 +388,8 @@ static MDFN_FASTCALL unsigned SoundCPU_BusIntAck(uint8 level)
 
 static MDFN_FASTCALL void SoundCPU_BusRESET(bool state)
 {
- //SS_DBG(SS_DBG_WARNING, "[M68K] RESET: %d @ time %d\n", state, SoundCPU.timestamp);
  if(state)
- {
   SoundCPU.Reset(false);
- }
 }
 
 uint32 SOUND_GetSCSPRegister(const unsigned id, char* const special, const uint32 special_len)
@@ -346,7 +402,12 @@ void SOUND_SetSCSPRegister(const unsigned id, const uint32 value)
  SCSP.SetRegister(id, value);
 }
 
-#ifdef MDFN_SSFPLAY_COMPILE
+uint32 SOUND_GetM68KRegister(const unsigned id, char* const special, const uint32 special_len)
+{
+ return SoundCPU.GetRegister(id, special, special_len);
 }
-#endif
 
+void SOUND_SetM68KRegister(const unsigned id, const uint32 value)
+{
+ SoundCPU.SetRegister(id, value);
+}
