@@ -9,12 +9,7 @@ NEED_BPP                 := 32
 NEED_DEINTERLACER        := 1
 NEED_THREADING           := 1
 NEED_TREMOR              := 1
-IS_X86                   := 0
 FLAGS                    :=
-
-ifeq ($(TARGET_ARCH),x86)
-  IS_X86 := 1
-endif
 
 include $(CORE_DIR)/Makefile.common
 

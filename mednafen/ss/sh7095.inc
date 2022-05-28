@@ -2217,19 +2217,18 @@ static const int8 LRU_Replace_Tab[0x40] =
 
 static INLINE uint32 cmov_eq_thing(const uint32 reg_compval, const uint32 mem_compval, uint32 var, const uint32 repl_var)
 {
- #ifdef ARCH_X86
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386) || defined(_M_IX86)
  asm(	"cmpl %1, %2\n\t"
 	"cmove %3,%0\n\t"
 	: "+r"(var)
 	: "r"(reg_compval), "g"(mem_compval), "r"(repl_var)
 	: "cc");
- #else
-  #ifdef __GNUC__
-   #warning "Conditional move inline assembly not being used."
-  #endif
+#else
+#ifdef __GNUC__
+  #warning "Conditional move inline assembly not being used."
+#endif
  var = ((reg_compval == mem_compval) ? repl_var : var);
- #endif
-
+#endif
  return var;
 }
 

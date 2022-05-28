@@ -65,9 +65,6 @@ ifneq (,$(findstring unix,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
-   ifneq ($(shell uname -p | grep -E '((i.|x)86|amd64)'),)
-      IS_X86 = 1
-   endif
    ifneq (,$(findstring Haiku,$(shell uname -s)))
    CXXFLAGS += -fpermissive
    PTHREAD_FLAGS = -lpthread
@@ -415,7 +412,6 @@ else
    TARGET := $(TARGET_NAME)_libretro.dll
    CC ?= gcc
    CXX ?= g++
-   IS_X86 = 1
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
    LDFLAGS += -static-libgcc -static-libstdc++ -lwinmm
    ifeq ($(HAVE_OPENGL),1)
