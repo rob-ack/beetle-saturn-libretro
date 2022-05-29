@@ -110,14 +110,14 @@ add_compile_definitions(FRONTEND_SUPPORTS_RGB565)
 #endif
 #
 #ifeq ($(NEED_CD), 1)
-if(${NEED_CD})
+if(NEED_CD)
 #   FLAGS += -DNEED_CD
     add_compile_definitions(NEED_CD)
 #endif
-endif(${NEED_CD})
+endif()
 #
 #ifeq ($(HAVE_CHD), 1)
-if(${HAVE_CHD})
+if(HAVE_CHD)
 #   FLAGS += -DHAVE_CHD -D_7ZIP_ST
 add_compile_definitions(HAVE_CHD _7ZIP_ST)
 #ifeq ($(SYSTEM_LIBCHDR), 1)
@@ -145,7 +145,7 @@ set(HEADERS ${HEADERS}
 
 #endif
 #endif
-endif(${HAVE_CHD})
+endif()
 #
 #ifeq ($(NEED_TREMOR), 1)
 #   FLAGS += -DNEED_TREMOR
@@ -425,7 +425,7 @@ set(SOURCES_C ${SOURCES_C}
 #
 
 add_compile_definitions(NEED_THREADING=1 HAVE_CHD=1)
-add_library(mednafen_saturn SHARED ${SOURCES_C} ${SOURCES_CXX})
+add_library(mednafen_saturn_libretro SHARED ${SOURCES_C} ${SOURCES_CXX})
 
 ###############################################
 
