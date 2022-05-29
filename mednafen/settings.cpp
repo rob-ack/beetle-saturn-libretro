@@ -68,5 +68,5 @@ std::string MDFN_GetSettingS(const char *name)
       return std::string("mpr-19367-mx.ic1");
    if (!strcmp("ss.cart.satar4mp_path", name))
       return std::string("satar4mp.bin");
-   return 0;
+   return "";
 }
